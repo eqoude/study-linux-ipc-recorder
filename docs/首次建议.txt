@@ -1,0 +1,31 @@
+这是早期 code review 记录文件。
+
+注意：当前项目已经完成了多项早期建议，包括：
+
+- AppConfig 命令行配置
+- AppPipeline 拆分
+- thread_queue 多线程基础设施
+- MediaPacket.data deep copy
+- MP4 H264 extradata
+- MP4 frame_index 时间戳
+- SDL Preview
+- RTSP publisher 初步实现
+
+因此，理解当前项目时不要以本文件作为最新架构依据。
+
+当前最新入口文档请看：
+
+- docs/README.md
+- docs/project/system_overview.md
+- docs/project/code_reading_guide.md
+- docs/architecture/app_pipeline.md
+- docs/architecture/thread_queue.md
+- docs/architecture/data_contract.md
+- docs/architecture/plugin_register.md
+
+当前仍需关注的问题：
+
+- V4L2 `QUERYCAP / G_FMT / S_PARM` 未完善
+- RTSP 依赖外部 mediamtx，不是内置 RTSP Server
+- queue 性能和长时间稳定性仍需实测
+- 没有音频流和音视频同步

@@ -1,0 +1,6 @@
+#ifndef IPC_RECORDER_MODULES_MODULE_REGISTER_H
+#define IPC_RECORDER_MODULES_MODULE_REGISTER_H
+
+int RegisterAllModules(void);
+
+#endif

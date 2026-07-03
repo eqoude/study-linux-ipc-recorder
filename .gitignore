@@ -1,0 +1,30 @@
+# Build outputs
+build/
+bin/
+
+# Runtime outputs
+output/*.mp4
+output/*.h264
+output/*.264
+output/*.log
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Object / binary files
+*.o
+*.a
+*.so
+*.out
+
+# Core dumps
+core
+core.*
+
+# Temporary files
+*.tmp
+*.bak
