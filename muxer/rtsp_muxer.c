@@ -1,5 +1,6 @@
 #include "muxer_manager.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,17 +21,36 @@ typedef struct {
     int64_t frame_index;
 } RtspMuxerContext;
 
+static int rtsp_muxer_map_open_error(int errnum)
+{
+    int posix_errno = AVUNERROR(errnum);
+
+    if (posix_errno == ECONNREFUSED || posix_errno == ETIMEDOUT ||
+        posix_errno == EHOSTUNREACH || posix_errno == ENETUNREACH ||
+        posix_errno == ECONNRESET || posix_errno == ENOENT) {
+        return IPC_EOPEN;
+    }
+
+    return IPC_EMUXER;
+}
+
 static void rtsp_muxer_print_error(const char *operation, int errnum)
 {
     char errbuf[AV_ERROR_MAX_STRING_SIZE];
+    int mapped_error = rtsp_muxer_map_open_error(errnum);
 
     if (av_strerror(errnum, errbuf, sizeof(errbuf)) < 0) {
         snprintf(errbuf, sizeof(errbuf), "unknown error");
     }
 
     fprintf(stderr, "[rtsp] %s failed: %d (%s)\n", operation, errnum, errbuf);
-    fprintf(stderr,
-            "RTSP server not available. Please start mediamtx or another RTSP server first.\n");
+    if (mapped_error == IPC_EOPEN) {
+        fprintf(stderr,
+                "[rtsp] RTSP server not available: %s (%d). "
+                "Please start mediamtx or another RTSP server first.\n",
+                IpcError_ToString(mapped_error),
+                mapped_error);
+    }
 }
 
 static int rtsp_muxer_copy_extradata(AVCodecParameters *codecpar,
@@ -40,13 +60,13 @@ static int rtsp_muxer_copy_extradata(AVCodecParameters *codecpar,
 
     if (codecpar == NULL || packet == NULL ||
         packet->extradata == NULL || packet->extradata_size <= 0) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     extradata = (uint8_t *)av_mallocz((size_t)packet->extradata_size +
                                       AV_INPUT_BUFFER_PADDING_SIZE);
     if (extradata == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     memcpy(extradata, packet->extradata, (size_t)packet->extradata_size);
@@ -54,7 +74,7 @@ static int rtsp_muxer_copy_extradata(AVCodecParameters *codecpar,
     codecpar->extradata = extradata;
     codecpar->extradata_size = packet->extradata_size;
 
-    return 0;
+    return IPC_OK;
 }
 
 static int rtsp_muxer_write_header_with_packet(RtspMuxerContext *ctx,
@@ -65,15 +85,16 @@ static int rtsp_muxer_write_header_with_packet(RtspMuxerContext *ctx,
 
     if (ctx == NULL || ctx->format_ctx == NULL ||
         ctx->video_stream == NULL || packet == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
     if (ctx->header_written) {
-        return 0;
+        return IPC_OK;
     }
 
-    if (rtsp_muxer_copy_extradata(ctx->video_stream->codecpar, packet) < 0) {
+    ret = rtsp_muxer_copy_extradata(ctx->video_stream->codecpar, packet);
+    if (ret != IPC_OK) {
         fprintf(stderr, "[rtsp] missing H264 SPS/PPS extradata\n");
-        return -1;
+        return ret;
     }
 
     av_dict_set(&options, "rtsp_transport", "tcp", 0);
@@ -81,12 +102,12 @@ static int rtsp_muxer_write_header_with_packet(RtspMuxerContext *ctx,
     av_dict_free(&options);
     if (ret < 0) {
         rtsp_muxer_print_error("avformat_write_header", ret);
-        return -1;
+        return rtsp_muxer_map_open_error(ret);
     }
 
     ctx->header_written = 1;
     printf("[rtsp] write_header\n");
-    return 0;
+    return IPC_OK;
 }
 
 static int rtsp_muxer_init(MuxerManager *manager)
@@ -97,12 +118,12 @@ static int rtsp_muxer_init(MuxerManager *manager)
         manager->config.output_path[0] == '\0' ||
         manager->config.width <= 0 || manager->config.height <= 0 ||
         manager->config.fps <= 0 || manager->config.codec != CODEC_H264) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ctx = (RtspMuxerContext *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->config = manager->config;
@@ -110,7 +131,7 @@ static int rtsp_muxer_init(MuxerManager *manager)
     manager->priv = ctx;
 
     printf("[rtsp] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void rtsp_muxer_deinit(MuxerManager *manager)
@@ -149,8 +170,11 @@ static int rtsp_muxer_open(MuxerManager *manager)
     AVStream *stream;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (RtspMuxerContext *)manager->priv;
@@ -158,13 +182,13 @@ static int rtsp_muxer_open(MuxerManager *manager)
                                          ctx->config.output_path);
     if (ret < 0 || ctx->format_ctx == NULL) {
         fprintf(stderr, "[rtsp] avformat_alloc_output_context2 failed: %d\n", ret);
-        return -1;
+        return IPC_EMUXER;
     }
 
     ctx->frame_index = 0;
     stream = avformat_new_stream(ctx->format_ctx, NULL);
     if (stream == NULL) {
-        return -1;
+        return IPC_EMUXER;
     }
 
     stream->id = (int)(ctx->format_ctx->nb_streams - 1);
@@ -181,7 +205,7 @@ static int rtsp_muxer_open(MuxerManager *manager)
     ctx->video_stream = stream;
 
     printf("[rtsp] open %s\n", ctx->config.output_path);
-    return 0;
+    return IPC_OK;
 }
 
 static void rtsp_muxer_close(MuxerManager *manager)
@@ -204,21 +228,24 @@ static int rtsp_muxer_write_header(MuxerManager *manager)
 {
     RtspMuxerContext *ctx;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (RtspMuxerContext *)manager->priv;
     if (ctx->format_ctx == NULL || ctx->video_stream == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
     if (ctx->header_written) {
-        return 0;
+        return IPC_OK;
     }
 
     ctx->header_requested = 1;
     printf("[rtsp] write_header pending\n");
-    return 0;
+    return IPC_OK;
 }
 
 static int rtsp_muxer_write_packet(MuxerManager *manager,
@@ -232,23 +259,27 @@ static int rtsp_muxer_write_packet(MuxerManager *manager,
     int64_t duration;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL || packet == NULL ||
+    if (manager == NULL || packet == NULL ||
         packet->codec != CODEC_H264 || packet->data == NULL ||
         packet->size <= 0) {
-        return -1;
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (RtspMuxerContext *)manager->priv;
     if (ctx->format_ctx == NULL || ctx->video_stream == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
     if (!ctx->header_written) {
         if (!ctx->header_requested) {
             fprintf(stderr, "[rtsp] write_packet before write_header\n");
-            return -1;
+            return IPC_ESTATE;
         }
-        if (rtsp_muxer_write_header_with_packet(ctx, packet) < 0) {
-            return -1;
+        ret = rtsp_muxer_write_header_with_packet(ctx, packet);
+        if (ret != IPC_OK) {
+            return ret;
         }
     }
 
@@ -263,7 +294,7 @@ static int rtsp_muxer_write_packet(MuxerManager *manager,
     packet_data = (uint8_t *)av_malloc((size_t)packet->size +
                                        AV_INPUT_BUFFER_PADDING_SIZE);
     if (packet_data == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     memcpy(packet_data, packet->data, (size_t)packet->size);
@@ -272,7 +303,7 @@ static int rtsp_muxer_write_packet(MuxerManager *manager,
     ret = av_packet_from_data(&av_packet, packet_data, packet->size);
     if (ret < 0) {
         av_free(packet_data);
-        return -1;
+        return IPC_EMUXER;
     }
 
     av_packet.stream_index = ctx->video_stream->index;
@@ -287,11 +318,11 @@ static int rtsp_muxer_write_packet(MuxerManager *manager,
     if (ret < 0) {
         fprintf(stderr, "[rtsp] av_interleaved_write_frame failed: %d\n", ret);
         av_packet_unref(&av_packet);
-        return -1;
+        return IPC_EMUXER;
     }
 
     ctx->frame_index++;
-    return 0;
+    return IPC_OK;
 }
 
 static int rtsp_muxer_write_trailer(MuxerManager *manager)
@@ -299,24 +330,27 @@ static int rtsp_muxer_write_trailer(MuxerManager *manager)
     RtspMuxerContext *ctx;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (RtspMuxerContext *)manager->priv;
     if (ctx->format_ctx == NULL || !ctx->header_written || ctx->trailer_written) {
-        return 0;
+        return IPC_OK;
     }
 
     ret = av_write_trailer(ctx->format_ctx);
     if (ret < 0) {
         fprintf(stderr, "[rtsp] av_write_trailer failed: %d\n", ret);
-        return -1;
+        return IPC_EMUXER;
     }
 
     ctx->trailer_written = 1;
     printf("[rtsp] write_trailer\n");
-    return 0;
+    return IPC_OK;
 }
 
 const MuxerOps g_rtsp_muxer_ops = {

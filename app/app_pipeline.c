@@ -8,6 +8,15 @@
 #define IPC_QUEUE_MAX_SIZE 8
 #define IPC_DROP_WARMUP_FRAMES 10
 
+static void app_pipeline_log_error(const char *operation, int ret)
+{
+    fprintf(stderr,
+            "[pipeline] %s failed: %s (%d)\n",
+            operation,
+            IpcError_ToString(ret),
+            ret);
+}
+
 static int app_pipeline_need_encode(const AppPipeline *pipeline)
 {
     return pipeline != NULL &&
@@ -43,27 +52,58 @@ static void *capture_thread_main(void *arg)
 
     for (int i = 0; i < IPC_DROP_WARMUP_FRAMES && !pipeline->stop; ++i) {
         ret = CaptureManager_GetFrame(&pipeline->capture, &frame);
-        if (ret < 0) {
-            fprintf(stderr, "Drop frame failed\n");
-            pipeline->error = -1;
+        if (ret == IPC_EAGAIN) {
+            continue;
+        }
+        if (ret == IPC_EOF) {
+            FrameQueue_Close(&pipeline->raw_queue);
+            return NULL;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("Drop warmup frame", ret);
+            pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
             return NULL;
         }
-        CaptureManager_ReleaseFrame(&pipeline->capture, &frame);
+        ret = CaptureManager_ReleaseFrame(&pipeline->capture, &frame);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("CaptureManager_ReleaseFrame(warmup)", ret);
+            pipeline->error = ret;
+            app_pipeline_request_stop(pipeline);
+            return NULL;
+        }
     }
 
     while (!pipeline->stop) {
         ret = CaptureManager_GetFrame(&pipeline->capture, &frame);
-        if (ret < 0) {
-            fprintf(stderr, "CaptureManager_GetFrame failed\n");
-            pipeline->error = -1;
+        if (ret == IPC_EAGAIN) {
+            continue;
+        }
+        if (ret == IPC_EOF) {
+            break;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("CaptureManager_GetFrame", ret);
+            pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
             break;
         }
 
         ret = FrameQueue_Push(&pipeline->raw_queue, &frame);
-        CaptureManager_ReleaseFrame(&pipeline->capture, &frame);
-        if (ret < 0) {
+        int release_ret = CaptureManager_ReleaseFrame(&pipeline->capture, &frame);
+        if (release_ret != IPC_OK) {
+            app_pipeline_log_error("CaptureManager_ReleaseFrame", release_ret);
+            pipeline->error = release_ret;
+            app_pipeline_request_stop(pipeline);
+            break;
+        }
+        if (ret == IPC_EOF) {
+            break;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("FrameQueue_Push(raw_queue)", ret);
+            pipeline->error = ret;
+            app_pipeline_request_stop(pipeline);
             break;
         }
 
@@ -93,11 +133,15 @@ static void *process_thread_main(void *arg)
 
     while (!pipeline->stop) {
         ret = FrameQueue_Pop(&pipeline->raw_queue, &raw_frame);
-        if (ret > 0) {
+        if (ret == IPC_EOF) {
             break;
         }
-        if (ret < 0) {
-            pipeline->error = -1;
+        if (ret == IPC_EAGAIN) {
+            continue;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("FrameQueue_Pop(raw_queue)", ret);
+            pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
             break;
         }
@@ -106,9 +150,15 @@ static void *process_thread_main(void *arg)
                                        &raw_frame,
                                        &yuv420_frame);
         FrameQueue_UnrefFrame(&raw_frame);
-        if (ret < 0) {
-            fprintf(stderr, "ConverterManager_Convert failed\n");
-            pipeline->error = -1;
+        if (ret == IPC_EAGAIN) {
+            continue;
+        }
+        if (ret == IPC_EOF) {
+            break;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("ConverterManager_Convert", ret);
+            pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
             break;
         }
@@ -119,8 +169,8 @@ static void *process_thread_main(void *arg)
                                                 &yuv420_frame,
                                                 &processed_frame);
             if (ret < 0) {
-                fprintf(stderr, "FrameProcessorManager_Process failed\n");
-                pipeline->error = -1;
+                app_pipeline_log_error("FrameProcessorManager_Process", ret);
+                pipeline->error = 1;
                 app_pipeline_request_stop(pipeline);
                 break;
             }
@@ -129,13 +179,17 @@ static void *process_thread_main(void *arg)
 
         if (pipeline->config.enable_preview) {
             ret = ViewerManager_Display(&pipeline->viewer, output_frame);
-            if (ret > 0) {
+            if (ret == IPC_EOF) {
+                fprintf(stderr,
+                        "[pipeline] preview closed by user: %s (%d)\n",
+                        IpcError_ToString(ret),
+                        ret);
                 app_pipeline_request_stop(pipeline);
                 break;
             }
-            if (ret < 0) {
-                fprintf(stderr, "ViewerManager_Display failed\n");
-                pipeline->error = -1;
+            if (ret != IPC_OK) {
+                app_pipeline_log_error("ViewerManager_Display", ret);
+                pipeline->error = ret;
                 app_pipeline_request_stop(pipeline);
                 break;
             }
@@ -143,7 +197,13 @@ static void *process_thread_main(void *arg)
 
         if (app_pipeline_need_encode(pipeline)) {
             ret = FrameQueue_Push(&pipeline->encode_queue, output_frame);
-            if (ret < 0) {
+            if (ret == IPC_EOF) {
+                break;
+            }
+            if (ret != IPC_OK) {
+                app_pipeline_log_error("FrameQueue_Push(encode_queue)", ret);
+                pipeline->error = ret;
+                app_pipeline_request_stop(pipeline);
                 break;
             }
         }
@@ -168,37 +228,74 @@ static void *encode_thread_main(void *arg)
 
     while (!pipeline->stop) {
         ret = FrameQueue_Pop(&pipeline->encode_queue, &frame);
-        if (ret > 0) {
+        if (ret == IPC_EOF) {
             break;
         }
-        if (ret < 0) {
-            pipeline->error = -1;
+        if (ret == IPC_EAGAIN) {
+            continue;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("FrameQueue_Pop(encode_queue)", ret);
+            pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
             break;
         }
 
         ret = EncoderManager_Encode(&pipeline->encoder, &frame, &packet);
         FrameQueue_UnrefFrame(&frame);
-        if (ret == 0) {
-            if (PacketQueue_Push(&pipeline->packet_queue, &packet) < 0) {
+        if (ret == IPC_OK) {
+            ret = PacketQueue_Push(&pipeline->packet_queue, &packet);
+            if (ret == IPC_EOF) {
                 MediaPacket_Unref(&packet);
                 break;
             }
+            if (ret != IPC_OK) {
+                app_pipeline_log_error("PacketQueue_Push(packet_queue)", ret);
+                pipeline->error = ret;
+                MediaPacket_Unref(&packet);
+                app_pipeline_request_stop(pipeline);
+                break;
+            }
             MediaPacket_Unref(&packet);
-        } else if (ret > 0) {
+        } else if (ret == IPC_EAGAIN) {
+            continue;
+        } else if (ret == IPC_EOF) {
+            break;
         } else {
-            fprintf(stderr, "EncoderManager_Encode failed\n");
-            pipeline->error = -1;
+            app_pipeline_log_error("EncoderManager_Encode", ret);
+            pipeline->error = ret;
             MediaPacket_Unref(&packet);
             app_pipeline_request_stop(pipeline);
             break;
         }
     }
 
-    while (!pipeline->stop &&
-           EncoderManager_Flush(&pipeline->encoder, &packet) == 0) {
-        if (PacketQueue_Push(&pipeline->packet_queue, &packet) < 0) {
+    while (!pipeline->stop) {
+        ret = EncoderManager_Flush(&pipeline->encoder, &packet);
+        if (ret == IPC_EAGAIN) {
+            continue;
+        }
+        if (ret == IPC_EOF) {
+            break;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("EncoderManager_Flush", ret);
+            pipeline->error = ret;
             MediaPacket_Unref(&packet);
+            app_pipeline_request_stop(pipeline);
+            break;
+        }
+
+        ret = PacketQueue_Push(&pipeline->packet_queue, &packet);
+        if (ret == IPC_EOF) {
+            MediaPacket_Unref(&packet);
+            break;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("PacketQueue_Push(packet_queue flush)", ret);
+            pipeline->error = ret;
+            MediaPacket_Unref(&packet);
+            app_pipeline_request_stop(pipeline);
             break;
         }
         MediaPacket_Unref(&packet);
@@ -219,21 +316,29 @@ static void *mux_thread_main(void *arg)
 
     while (!pipeline->stop) {
         ret = PacketQueue_Pop(&pipeline->packet_queue, &packet);
-        if (ret > 0) {
+        if (ret == IPC_EOF) {
             break;
         }
-        if (ret < 0) {
-            pipeline->error = -1;
+        if (ret == IPC_EAGAIN) {
+            continue;
+        }
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("PacketQueue_Pop(packet_queue)", ret);
+            pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
             break;
         }
 
         if (pipeline->config.enable_record) {
             ret = MuxerManager_WritePacket(&pipeline->muxer, &packet);
-            if (ret < 0) {
-                fprintf(stderr, "MuxerManager_WritePacket failed\n");
+            if (ret == IPC_EOF) {
                 MediaPacket_Unref(&packet);
-                pipeline->error = -1;
+                break;
+            }
+            if (ret < 0) {
+                app_pipeline_log_error("MuxerManager_WritePacket(mp4)", ret);
+                MediaPacket_Unref(&packet);
+                pipeline->error = ret;
                 app_pipeline_request_stop(pipeline);
                 break;
             }
@@ -241,10 +346,14 @@ static void *mux_thread_main(void *arg)
 
         if (pipeline->config.enable_rtsp) {
             ret = MuxerManager_WritePacket(&pipeline->rtsp_muxer, &packet);
-            if (ret < 0) {
-                fprintf(stderr, "RtspMuxer WritePacket failed\n");
+            if (ret == IPC_EOF) {
                 MediaPacket_Unref(&packet);
-                pipeline->error = -1;
+                break;
+            }
+            if (ret < 0) {
+                app_pipeline_log_error("MuxerManager_WritePacket(rtsp)", ret);
+                MediaPacket_Unref(&packet);
+                pipeline->error = ret;
                 app_pipeline_request_stop(pipeline);
                 break;
             }
@@ -252,7 +361,8 @@ static void *mux_thread_main(void *arg)
 
         MediaPacket_Unref(&packet);
         if (ret < 0) {
-            pipeline->error = -1;
+            app_pipeline_log_error("Mux thread write packet", ret);
+            pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
             break;
         }
@@ -267,16 +377,17 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     int ret;
 
     if (pipeline == NULL || config == NULL) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     memset(pipeline, 0, sizeof(*pipeline));
     pipeline->config = *config;
 
     ret = RegisterAllModules();
-    if (ret < 0) {
-        fprintf(stderr, "RegisterAllModules failed\n");
-        return -1;
+    if (ret != IPC_OK) {
+        app_pipeline_log_error("RegisterAllModules", ret);
+        pipeline->error = 1;
+        return ret;
     }
 
     CaptureConfig capture_config = {
@@ -290,9 +401,9 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     ret = CaptureManager_Init(&pipeline->capture,
                               pipeline->config.capture_name,
                               &capture_config);
-    if (ret < 0) {
-        fprintf(stderr, "CaptureManager_Init failed\n");
-        return -1;
+    if (ret != IPC_OK) {
+        app_pipeline_log_error("CaptureManager_Init", ret);
+        return ret;
     }
     pipeline->capture_inited = 1;
 
@@ -308,9 +419,9 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     ret = ConverterManager_Init(&pipeline->converter,
                                 pipeline->config.converter_name,
                                 &converter_config);
-    if (ret < 0) {
-        fprintf(stderr, "ConverterManager_Init failed\n");
-        return -1;
+    if (ret != IPC_OK) {
+        app_pipeline_log_error("ConverterManager_Init", ret);
+        return ret;
     }
     pipeline->converter_inited = 1;
 
@@ -326,8 +437,8 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
                                          pipeline->config.processor_name,
                                          &processor_config);
         if (ret < 0) {
-            fprintf(stderr, "FrameProcessorManager_Init failed\n");
-            return -1;
+            app_pipeline_log_error("FrameProcessorManager_Init", ret);
+            return ret;
         }
         pipeline->processor_inited = 1;
     }
@@ -343,8 +454,8 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
                                  pipeline->config.viewer_name,
                                  &viewer_config);
         if (ret < 0) {
-            fprintf(stderr, "ViewerManager_Init failed\n");
-            return -1;
+            app_pipeline_log_error("ViewerManager_Init", ret);
+            return ret;
         }
         pipeline->viewer_inited = 1;
     }
@@ -363,8 +474,8 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
                                   pipeline->config.encoder_name,
                                   &encoder_config);
         if (ret < 0) {
-            fprintf(stderr, "EncoderManager_Init failed\n");
-            return -1;
+            app_pipeline_log_error("EncoderManager_Init", ret);
+            return ret;
         }
         pipeline->encoder_inited = 1;
     }
@@ -382,9 +493,9 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
         ret = MuxerManager_Init(&pipeline->muxer,
                                 pipeline->config.muxer_name,
                                 &muxer_config);
-        if (ret < 0) {
-            fprintf(stderr, "MuxerManager_Init failed\n");
-            return -1;
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_Init", ret);
+            return ret;
         }
         pipeline->muxer_inited = 1;
     }
@@ -402,70 +513,76 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
         ret = MuxerManager_Init(&pipeline->rtsp_muxer,
                                 "rtsp",
                                 &rtsp_muxer_config);
-        if (ret < 0) {
-            fprintf(stderr, "RtspMuxer Init failed\n");
-            return -1;
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_Init(rtsp)", ret);
+            return ret;
         }
         pipeline->rtsp_muxer_inited = 1;
     }
 
-    if (FrameQueue_Init(&pipeline->raw_queue, IPC_QUEUE_MAX_SIZE) < 0) {
-        return -1;
+    ret = FrameQueue_Init(&pipeline->raw_queue, IPC_QUEUE_MAX_SIZE);
+    if (ret != IPC_OK) {
+        app_pipeline_log_error("FrameQueue_Init(raw_queue)", ret);
+        return ret;
     }
     pipeline->raw_queue_inited = 1;
 
     if (app_pipeline_need_encode(pipeline)) {
-        if (FrameQueue_Init(&pipeline->encode_queue, IPC_QUEUE_MAX_SIZE) < 0) {
-            return -1;
+        ret = FrameQueue_Init(&pipeline->encode_queue, IPC_QUEUE_MAX_SIZE);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("FrameQueue_Init(encode_queue)", ret);
+            return ret;
         }
         pipeline->encode_queue_inited = 1;
 
-        if (PacketQueue_Init(&pipeline->packet_queue, IPC_QUEUE_MAX_SIZE) < 0) {
-            return -1;
+        ret = PacketQueue_Init(&pipeline->packet_queue, IPC_QUEUE_MAX_SIZE);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("PacketQueue_Init(packet_queue)", ret);
+            return ret;
         }
         pipeline->packet_queue_inited = 1;
     }
 
     ret = CaptureManager_Open(&pipeline->capture);
-    if (ret < 0) {
-        fprintf(stderr, "CaptureManager_Open failed\n");
-        return -1;
+    if (ret != IPC_OK) {
+        app_pipeline_log_error("CaptureManager_Open", ret);
+        return ret;
     }
     pipeline->capture_opened = 1;
 
     if (pipeline->config.enable_record) {
         ret = MuxerManager_Open(&pipeline->muxer);
-        if (ret < 0) {
-            fprintf(stderr, "MuxerManager_Open failed\n");
-            return -1;
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_Open(mp4)", ret);
+            return ret;
         }
         pipeline->muxer_opened = 1;
 
         ret = MuxerManager_WriteHeader(&pipeline->muxer);
-        if (ret < 0) {
-            fprintf(stderr, "MuxerManager_WriteHeader failed\n");
-            return -1;
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_WriteHeader(mp4)", ret);
+            return ret;
         }
         pipeline->muxer_header_written = 1;
     }
 
     if (pipeline->config.enable_rtsp) {
         ret = MuxerManager_Open(&pipeline->rtsp_muxer);
-        if (ret < 0) {
-            fprintf(stderr, "RtspMuxer Open failed\n");
-            return -1;
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_Open(rtsp)", ret);
+            return ret;
         }
         pipeline->rtsp_muxer_opened = 1;
 
         ret = MuxerManager_WriteHeader(&pipeline->rtsp_muxer);
-        if (ret < 0) {
-            fprintf(stderr, "RtspMuxer WriteHeader failed\n");
-            return -1;
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_WriteHeader(rtsp)", ret);
+            return ret;
         }
         pipeline->rtsp_muxer_header_written = 1;
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 int AppPipeline_Run(AppPipeline *pipeline)
@@ -473,13 +590,13 @@ int AppPipeline_Run(AppPipeline *pipeline)
     int ret;
 
     if (pipeline == NULL) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ret = CaptureManager_Start(&pipeline->capture);
-    if (ret < 0) {
-        fprintf(stderr, "CaptureManager_Start failed\n");
-        return -1;
+    if (ret != IPC_OK) {
+        app_pipeline_log_error("CaptureManager_Start", ret);
+        return ret;
     }
     pipeline->capture_started = 1;
 
@@ -489,7 +606,8 @@ int AppPipeline_Run(AppPipeline *pipeline)
                            mux_thread_main,
                            pipeline) != 0) {
             app_pipeline_request_stop(pipeline);
-            return -1;
+            app_pipeline_log_error("pthread_create(mux_thread)", IPC_ETHREAD);
+            return IPC_ETHREAD;
         }
         pipeline->mux_thread_started = 1;
 
@@ -498,7 +616,8 @@ int AppPipeline_Run(AppPipeline *pipeline)
                            encode_thread_main,
                            pipeline) != 0) {
             app_pipeline_request_stop(pipeline);
-            return -1;
+            app_pipeline_log_error("pthread_create(encode_thread)", IPC_ETHREAD);
+            return IPC_ETHREAD;
         }
         pipeline->encode_thread_started = 1;
     }
@@ -508,7 +627,8 @@ int AppPipeline_Run(AppPipeline *pipeline)
                        process_thread_main,
                        pipeline) != 0) {
         app_pipeline_request_stop(pipeline);
-        return -1;
+        app_pipeline_log_error("pthread_create(process_thread)", IPC_ETHREAD);
+        return IPC_ETHREAD;
     }
     pipeline->process_thread_started = 1;
 
@@ -517,7 +637,8 @@ int AppPipeline_Run(AppPipeline *pipeline)
                        capture_thread_main,
                        pipeline) != 0) {
         app_pipeline_request_stop(pipeline);
-        return -1;
+        app_pipeline_log_error("pthread_create(capture_thread)", IPC_ETHREAD);
+        return IPC_ETHREAD;
     }
     pipeline->capture_thread_started = 1;
 
@@ -538,7 +659,7 @@ int AppPipeline_Run(AppPipeline *pipeline)
         pipeline->mux_thread_started = 0;
     }
 
-    return pipeline->error < 0 ? -1 : 0;
+    return pipeline->error < 0 ? pipeline->error : IPC_OK;
 }
 
 void AppPipeline_Deinit(AppPipeline *pipeline)

@@ -4,9 +4,12 @@
 
 static int fake_converter_init(ConverterManager *manager)
 {
-    (void)manager;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_converter] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void fake_converter_deinit(ConverterManager *manager)
@@ -19,9 +22,8 @@ static int fake_converter_convert(ConverterManager *manager,
                                   const MediaFrame *src_frame,
                                   MediaFrame *dst_frame)
 {
-    (void)manager;
-    if (src_frame == NULL || dst_frame == NULL) {
-        return -1;
+    if (manager == NULL || src_frame == NULL || dst_frame == NULL) {
+        return IPC_EINVAL;
     }
 
     printf("[fake_converter] convert\n");
@@ -30,7 +32,7 @@ static int fake_converter_convert(ConverterManager *manager,
     dst_frame->pixfmt = PIX_FMT_YUV420P;
     dst_frame->size = src_frame->width * src_frame->height * 3 / 2;
 
-    return 0;
+    return IPC_OK;
 }
 
 const ConverterOps g_fake_converter_ops = {

@@ -10,33 +10,33 @@ static size_t g_converter_ops_count;
 
 static int converter_validate_name(const char *name)
 {
-    return (name != NULL && name[0] != '\0') ? 0 : -1;
+    return (name != NULL && name[0] != '\0') ? IPC_OK : IPC_EINVAL;
 }
 
 int ConverterManager_Register(const ConverterOps *ops)
 {
     if (ops == NULL || ops->name == NULL || ops->name[0] == '\0') {
-        return -1;
+        return IPC_EINVAL;
     }
 
     for (size_t i = 0; i < g_converter_ops_count; ++i) {
         if (strcmp(g_converter_ops_table[i]->name, ops->name) == 0) {
             g_converter_ops_table[i] = ops;
-            return 0;
+            return IPC_OK;
         }
     }
 
     if (g_converter_ops_count >= CONVERTER_MAX_OPS) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     g_converter_ops_table[g_converter_ops_count++] = ops;
-    return 0;
+    return IPC_OK;
 }
 
 const ConverterOps *ConverterManager_Find(const char *converter_name)
 {
-    if (converter_validate_name(converter_name) < 0) {
+    if (converter_validate_name(converter_name) != IPC_OK) {
         return NULL;
     }
 
@@ -56,12 +56,12 @@ int ConverterManager_Init(ConverterManager *manager,
     const ConverterOps *ops;
 
     if (manager == NULL || config == NULL || converter_validate_name(converter_name) < 0) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ops = ConverterManager_Find(converter_name);
     if (ops == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     memset(manager, 0, sizeof(*manager));
@@ -73,7 +73,7 @@ int ConverterManager_Init(ConverterManager *manager,
         return manager->ops->init(manager);
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 void ConverterManager_Deinit(ConverterManager *manager)
@@ -91,9 +91,11 @@ int ConverterManager_Convert(ConverterManager *manager,
                              const MediaFrame *src_frame,
                              MediaFrame *dst_frame)
 {
-    if (manager == NULL || src_frame == NULL || dst_frame == NULL ||
-        manager->ops == NULL || manager->ops->convert == NULL) {
-        return -1;
+    if (manager == NULL || src_frame == NULL || dst_frame == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->ops == NULL || manager->ops->convert == NULL) {
+        return IPC_ESTATE;
     }
 
     return manager->ops->convert(manager, src_frame, dst_frame);

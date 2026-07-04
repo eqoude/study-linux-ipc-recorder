@@ -26,13 +26,13 @@ static int mp4_muxer_copy_extradata(AVCodecParameters *codecpar,
 
     if (codecpar == NULL || packet == NULL ||
         packet->extradata == NULL || packet->extradata_size <= 0) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     extradata = (uint8_t *)av_mallocz((size_t)packet->extradata_size +
                                       AV_INPUT_BUFFER_PADDING_SIZE);
     if (extradata == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     memcpy(extradata, packet->extradata, (size_t)packet->extradata_size);
@@ -40,7 +40,7 @@ static int mp4_muxer_copy_extradata(AVCodecParameters *codecpar,
     codecpar->extradata = extradata;
     codecpar->extradata_size = packet->extradata_size;
 
-    return 0;
+    return IPC_OK;
 }
 
 static int mp4_muxer_write_header_if_needed(Mp4MuxerContext *ctx,
@@ -49,27 +49,28 @@ static int mp4_muxer_write_header_if_needed(Mp4MuxerContext *ctx,
     int ret;
 
     if (ctx == NULL || ctx->format_ctx == NULL || ctx->video_stream == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     if (ctx->header_written) {
-        return 0;
+        return IPC_OK;
     }
 
-    if (mp4_muxer_copy_extradata(ctx->video_stream->codecpar, packet) < 0) {
+    ret = mp4_muxer_copy_extradata(ctx->video_stream->codecpar, packet);
+    if (ret != IPC_OK) {
         fprintf(stderr, "[mp4] missing H264 extradata\n");
-        return -1;
+        return ret;
     }
 
     ret = avformat_write_header(ctx->format_ctx, NULL);
     if (ret < 0) {
         fprintf(stderr, "[mp4] avformat_write_header failed: %d\n", ret);
-        return -1;
+        return IPC_EMUXER;
     }
 
     ctx->header_written = 1;
     printf("[mp4] write_header\n");
-    return 0;
+    return IPC_OK;
 }
 
 static int mp4_muxer_init(MuxerManager *manager)
@@ -80,12 +81,12 @@ static int mp4_muxer_init(MuxerManager *manager)
         manager->config.output_path[0] == '\0' ||
         manager->config.width <= 0 || manager->config.height <= 0 ||
         manager->config.fps <= 0 || manager->config.codec != CODEC_H264) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ctx = (Mp4MuxerContext *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->config = manager->config;
@@ -93,7 +94,7 @@ static int mp4_muxer_init(MuxerManager *manager)
     manager->priv = ctx;
 
     printf("[mp4] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void mp4_muxer_deinit(MuxerManager *manager)
@@ -122,8 +123,11 @@ static int mp4_muxer_open(MuxerManager *manager)
     AVStream *stream;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (Mp4MuxerContext *)manager->priv;
@@ -131,14 +135,14 @@ static int mp4_muxer_open(MuxerManager *manager)
                                          ctx->config.output_path);
     if (ret < 0 || ctx->format_ctx == NULL) {
         fprintf(stderr, "[mp4] avformat_alloc_output_context2 failed: %d\n", ret);
-        return -1;
+        return IPC_EMUXER;
     }
     ctx->format_ctx->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_ZERO;
     ctx->frame_index = 0;
 
     stream = avformat_new_stream(ctx->format_ctx, NULL);
     if (stream == NULL) {
-        return -1;
+        return IPC_EMUXER;
     }
 
     stream->id = (int)(ctx->format_ctx->nb_streams - 1);
@@ -158,12 +162,12 @@ static int mp4_muxer_open(MuxerManager *manager)
         ret = avio_open(&ctx->format_ctx->pb, ctx->config.output_path, AVIO_FLAG_WRITE);
         if (ret < 0) {
             fprintf(stderr, "[mp4] avio_open failed: %d\n", ret);
-            return -1;
+            return IPC_EOPEN;
         }
     }
 
     printf("[mp4] open %s\n", ctx->config.output_path);
-    return 0;
+    return IPC_OK;
 }
 
 static void mp4_muxer_close(MuxerManager *manager)
@@ -186,18 +190,21 @@ static int mp4_muxer_write_header(MuxerManager *manager)
 {
     Mp4MuxerContext *ctx;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (Mp4MuxerContext *)manager->priv;
     if (ctx->format_ctx == NULL || ctx->video_stream == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     ctx->header_requested = 1;
     printf("[mp4] write_header pending\n");
-    return 0;
+    return IPC_OK;
 }
 
 static int mp4_muxer_write_packet(MuxerManager *manager,
@@ -211,19 +218,23 @@ static int mp4_muxer_write_packet(MuxerManager *manager,
     int64_t duration;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL || packet == NULL ||
+    if (manager == NULL || packet == NULL ||
         packet->codec != CODEC_H264 || packet->data == NULL ||
         packet->size <= 0) {
-        return -1;
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (Mp4MuxerContext *)manager->priv;
     if (ctx->format_ctx == NULL || ctx->video_stream == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
 
-    if (mp4_muxer_write_header_if_needed(ctx, packet) < 0) {
-        return -1;
+    ret = mp4_muxer_write_header_if_needed(ctx, packet);
+    if (ret != IPC_OK) {
+        return ret;
     }
 
     src_time_base = (AVRational){ 1, ctx->config.fps };
@@ -238,7 +249,7 @@ static int mp4_muxer_write_packet(MuxerManager *manager,
     packet_data = (uint8_t *)av_malloc((size_t)packet->size +
                                        AV_INPUT_BUFFER_PADDING_SIZE);
     if (packet_data == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     memcpy(packet_data, packet->data, (size_t)packet->size);
@@ -247,7 +258,7 @@ static int mp4_muxer_write_packet(MuxerManager *manager,
     ret = av_packet_from_data(&av_packet, packet_data, packet->size);
     if (ret < 0) {
         av_free(packet_data);
-        return -1;
+        return IPC_EMUXER;
     }
 
     av_packet.stream_index = ctx->video_stream->index;
@@ -262,7 +273,7 @@ static int mp4_muxer_write_packet(MuxerManager *manager,
     if (ret < 0) {
         fprintf(stderr,"[mp4] av_interleaved_write_frame failed: %d\n",ret);
         av_packet_unref(&av_packet);
-        return -1;
+        return IPC_EMUXER;
     }
 
     /*
@@ -272,7 +283,7 @@ static int mp4_muxer_write_packet(MuxerManager *manager,
     ctx->frame_index++;
 
     printf("[mp4] write_packet size=%d\n", packet->size);
-    return 0;
+    return IPC_OK;
 }
 
 static int mp4_muxer_write_trailer(MuxerManager *manager)
@@ -280,26 +291,29 @@ static int mp4_muxer_write_trailer(MuxerManager *manager)
     Mp4MuxerContext *ctx;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (Mp4MuxerContext *)manager->priv;
     if (ctx->format_ctx == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
     if (!ctx->header_written) {
-        return 0;
+        return IPC_OK;
     }
 
     ret = av_write_trailer(ctx->format_ctx);
     if (ret < 0) {
         fprintf(stderr, "[mp4] av_write_trailer failed: %d\n", ret);
-        return -1;
+        return IPC_EMUXER;
     }
 
     printf("[mp4] write_trailer\n");
-    return 0;
+    return IPC_OK;
 }
 
 const MuxerOps g_mp4_muxer_ops = {

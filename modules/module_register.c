@@ -1,5 +1,7 @@
 #include "module_register.h"
 
+#include <stdio.h>
+
 #include "../capture/capture_manager.h"
 #include "../converter/converter_manager.h"
 #include "../encoder/encoder_manager.h"
@@ -20,64 +22,77 @@ extern const ConverterOps g_yuyv_to_yuv420_ops;
 extern const EncoderOps g_h264_ffmpeg_encoder_ops;
 extern const MuxerOps g_mp4_muxer_ops;
 
+static int module_register_check(const char *module_name, int ret)
+{
+    if (ret != IPC_OK) {
+        fprintf(stderr,
+                "[module_register] register %s failed: %s (%d)\n",
+                module_name,
+                IpcError_ToString(ret),
+                ret);
+    }
+
+    return ret;
+}
+
 int RegisterAllModules(void)
 {
     int ret;
 
     ret = CaptureManager_Register(&g_fake_capture_ops);
-    if (ret < 0) {
+    if (module_register_check("fake_capture", ret) != IPC_OK) {
         return ret;
     }
 
     ret = CaptureManager_Register(&g_v4l2_capture_ops);
-    if (ret < 0) {
+    if (module_register_check("v4l2_capture", ret) != IPC_OK) {
         return ret;
     }
 
     ret = ConverterManager_Register(&g_fake_converter_ops);
-    if (ret < 0) {
+    if (module_register_check("fake_converter", ret) != IPC_OK) {
         return ret;
     }
 
     ret = ConverterManager_Register(&g_yuyv_to_yuv420_ops);
-    if (ret < 0) {
+    if (module_register_check("yuyv_to_yuv420", ret) != IPC_OK) {
         return ret;
     }
 
     ret = EncoderManager_Register(&g_fake_encoder_ops);
-    if (ret < 0) {
+    if (module_register_check("fake_encoder", ret) != IPC_OK) {
         return ret;
     }
 
     ret = EncoderManager_Register(&g_h264_ffmpeg_encoder_ops);
-    if (ret < 0) {
+    if (module_register_check("h264_ffmpeg_encoder", ret) != IPC_OK) {
         return ret;
     }
 
     ret = FrameProcessorManager_Register(&g_osd_processor_ops);
-    if (ret < 0) {
+    if (module_register_check("osd_processor", ret) != IPC_OK) {
         return ret;
     }
 
     ret = MuxerManager_Register(&g_fake_muxer_ops);
-    if (ret < 0) {
+    if (module_register_check("fake_muxer", ret) != IPC_OK) {
         return ret;
     }
 
     ret = MuxerManager_Register(&g_mp4_muxer_ops);
-    if (ret < 0) {
+    if (module_register_check("mp4_muxer", ret) != IPC_OK) {
         return ret;
     }
 
     ret = MuxerManager_Register(&g_rtsp_muxer_ops);
-    if (ret < 0) {
+    if (module_register_check("rtsp_muxer", ret) != IPC_OK) {
         return ret;
     }
 
     ret = RegisterViewer("sdl", &g_sdl_display_ops);
-    if (ret < 0) {
+    if (module_register_check("sdl_display", ret) != IPC_OK) {
         return ret;
     }
 
-    return 0;
+    return IPC_OK;
 }

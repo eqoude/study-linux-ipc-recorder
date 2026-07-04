@@ -4,9 +4,12 @@
 
 static int fake_capture_init(CaptureManager *manager)
 {
-    (void)manager;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_capture] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void fake_capture_deinit(CaptureManager *manager)
@@ -17,9 +20,12 @@ static void fake_capture_deinit(CaptureManager *manager)
 
 static int fake_capture_open(CaptureManager *manager)
 {
-    (void)manager;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_capture] open\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void fake_capture_close(CaptureManager *manager)
@@ -30,9 +36,12 @@ static void fake_capture_close(CaptureManager *manager)
 
 static int fake_capture_start(CaptureManager *manager)
 {
-    (void)manager;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_capture] start\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void fake_capture_stop(CaptureManager *manager)
@@ -43,9 +52,8 @@ static void fake_capture_stop(CaptureManager *manager)
 
 static int fake_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
 {
-    (void)manager;
-    if (frame == NULL) {
-        return -1;
+    if (manager == NULL || frame == NULL) {
+        return IPC_EINVAL;
     }
 
     printf("[fake_capture] get_frame\n");
@@ -62,15 +70,17 @@ static int fake_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
     frame->size = 640 * 480 * 2;
     frame->pts = 0;
 
-    return 0;
+    return IPC_OK;
 }
 
 static int fake_capture_release_frame(CaptureManager *manager, MediaFrame *frame)
 {
-    (void)manager;
-    (void)frame;
+    if (manager == NULL || frame == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_capture] release_frame\n");
-    return 0;
+    return IPC_OK;
 }
 
 const CaptureOps g_fake_capture_ops = {

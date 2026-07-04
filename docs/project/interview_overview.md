@@ -244,7 +244,70 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/live
 
 RTSP H264 解码依赖 SPS/PPS。当前 encoder 提供 extradata，RTSP muxer 在 header 前复制到 `stream->codecpar`。
 
-## 11. 我在项目中解决过哪些问题
+## 11. 统一错误码机制怎么设计
+
+早期模块里大量使用 `return 0 / return 1 / return -1`，问题是调用方只能知道“失败”，不知道是参数错误、暂时无数据、EOF、设备打开失败、编码失败还是 muxer 失败。
+
+现在项目定义 `IpcResult`：
+
+```text
+IPC_OK = 0          成功
+IPC_EAGAIN = 1      暂时无数据
+IPC_EOF = 2         正常结束
+负数                真正错误
+```
+
+常用负数错误包括：
+
+```text
+IPC_EINVAL          参数错误
+IPC_ENOMEM          内存失败
+IPC_EOPEN           打开设备/文件/URL 失败
+IPC_EIO             IO 错误
+IPC_ESTATE          状态错误
+IPC_EUNSUPPORTED    不支持的格式
+IPC_ECODEC          编码器错误
+IPC_EMUXER          muxer 错误
+IPC_ETHREAD         线程错误
+```
+
+各模块迁移状态：
+
+- `core / capture / converter / encoder / muxer / viewer / frame_processor` 已迁移。
+- `module_register` 会透传具体插件注册失败错误码。
+- `app_config` 中 `--help` 返回 `IPC_EOF`，非法参数返回 `IPC_EINVAL`。
+
+`AppPipeline` 的处理方式：
+
+```text
+IPC_OK      -> 继续
+IPC_EAGAIN  -> 继续等待
+IPC_EOF     -> 正常退出
+ret < 0     -> 打印 IpcError_ToString(ret)，设置 error 并 stop
+```
+
+`main.c` 负责把 IPC 错误码转换成 shell 退出码：
+
+- `--help`：进程退出码 `0`
+- 参数错误或 pipeline 错误：进程退出码 `1`
+
+这个机制对调试有直接帮助：
+
+- `/dev/video0` 打不开：`Open failed (-4)`
+- V4L2 ioctl 失败：`I/O error (-5)`
+- H264 编码失败：`Codec error (-8)`
+- MP4 封装失败：`Muxer error (-9)`
+- RTSP Server 没启动：`Open failed (-4)`，并提示先启动 mediamtx。
+
+测试命令：
+
+```bash
+make test-error
+```
+
+它验证错误码字符串、`MediaPacket`、`FrameQueue / PacketQueue` 和 `AppPipeline` 错误日志。
+
+## 12. 我在项目中解决过哪些问题
 
 可以这样讲：
 
@@ -258,8 +321,9 @@ RTSP H264 解码依赖 SPS/PPS。当前 encoder 提供 extradata，RTSP muxer �
 8. 实现 RTSP publisher，并明确依赖 mediamtx。
 9. 处理 RTSP SPS/PPS 问题，避免 ffplay `non-existing PPS`。
 10. 接入 SDL Preview，实现本地实时显示旁路。
+11. 引入统一错误码，让 pipeline 能区分 `OK / EAGAIN / EOF / 负数错误`，并打印可读错误信息。
 
-## 12. 当前项目还有哪些待完善点
+## 13. 当前项目还有哪些待完善点
 
 不要夸大当前项目。可以明确说：
 
@@ -272,9 +336,10 @@ RTSP H264 解码依赖 SPS/PPS。当前 encoder 提供 extradata，RTSP muxer �
 - queue 当前是固定容量阻塞模式，没有丢帧策略
 - Preview 需要本地图形环境
 - 还需要长时间稳定性和 valgrind 测试
+- 统一错误码已经完成，但还没有独立日志系统和错误恢复策略
 
-## 13. 面试回答模板
+## 14. 面试回答模板
 
 可以这样概括：
 
-> 这个项目是一个 Linux IPC 视频 pipeline 原型。我把它拆成 capture、converter、processor、viewer、encoder、muxer 几个组件，每个组件用 Manager + Ops 模式封装，再通过 module_register 做静态插件注册。数据层用 MediaFrame 表示原始帧，用 MediaPacket 表示编码包，避免所有模块都直接依赖 FFmpeg。应用层由 AppPipeline 根据 AppConfig 初始化模块，并用 FrameQueue / PacketQueue 把 capture、process、encode、mux 拆成多线程流水线。当前支持 V4L2 采集、YUYV422 到 YUV420P、H264 编码、MP4 保存、RTSP publisher 和 SDL Preview。项目定位是 engineering prototype，后续还需要补齐 V4L2 能力检测、RTSP 重连、音频同步和性能统计。
+> 这个项目是一个 Linux IPC 视频 pipeline 原型。我把它拆成 capture、converter、processor、viewer、encoder、muxer 几个组件，每个组件用 Manager + Ops 模式封装，再通过 module_register 做静态插件注册。数据层用 MediaFrame 表示原始帧，用 MediaPacket 表示编码包，避免所有模块都直接依赖 FFmpeg。应用层由 AppPipeline 根据 AppConfig 初始化模块，并用 FrameQueue / PacketQueue 把 capture、process、encode、mux 拆成多线程流水线。错误处理上引入统一 IpcResult，区分 OK、EAGAIN、EOF 和真正错误，让 V4L2、FFmpeg、RTSP、SDL 的问题能通过可读日志定位。当前支持 V4L2 采集、YUYV422 到 YUV420P、H264 编码、MP4 保存、RTSP publisher 和 SDL Preview。项目定位是 engineering prototype，后续还需要补齐 V4L2 能力检测、RTSP 重连、音频同步和性能统计。

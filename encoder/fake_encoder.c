@@ -6,9 +6,12 @@ static unsigned char g_fake_h264_packet[] = { 0x00, 0x00, 0x00, 0x01, 0x65 };
 
 static int fake_encoder_init(EncoderManager *manager)
 {
-    (void)manager;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_encoder] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void fake_encoder_deinit(EncoderManager *manager)
@@ -21,9 +24,8 @@ static int fake_encoder_encode(EncoderManager *manager,
                                const MediaFrame *src_frame,
                                MediaPacket *out_packet)
 {
-    (void)manager;
-    if (src_frame == NULL || out_packet == NULL) {
-        return -1;
+    if (manager == NULL || src_frame == NULL || out_packet == NULL) {
+        return IPC_EINVAL;
     }
 
     printf("[fake_encoder] encode\n");
@@ -35,15 +37,17 @@ static int fake_encoder_encode(EncoderManager *manager,
     out_packet->time_base = (AVRational){ 1, 30 };
     out_packet->codec = CODEC_H264;
 
-    return 0;
+    return IPC_OK;
 }
 
 static int fake_encoder_flush(EncoderManager *manager, MediaPacket *out_packet)
 {
-    (void)manager;
-    (void)out_packet;
+    if (manager == NULL || out_packet == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_encoder] flush\n");
-    return -1;
+    return IPC_EOF;
 }
 
 const EncoderOps g_fake_encoder_ops = {

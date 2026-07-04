@@ -1,6 +1,8 @@
 #ifndef IPC_RECORDER_APP_CONFIG_H
 #define IPC_RECORDER_APP_CONFIG_H
 
+#include "ipc_error.h"
+
 typedef struct {
     char device_path[128];
 

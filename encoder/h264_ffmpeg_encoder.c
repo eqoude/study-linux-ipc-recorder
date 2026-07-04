@@ -43,7 +43,7 @@ static int h264_ffmpeg_fill_packet(MediaPacket *out_packet,
         out_packet->extradata_size = ctx->extradata_size;
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 static int h264_ffmpeg_pop_packet(H264FFmpegEncoderContext *ctx,
@@ -51,8 +51,16 @@ static int h264_ffmpeg_pop_packet(H264FFmpegEncoderContext *ctx,
 {
     AVPacket *packet;
 
-    if (ctx == NULL || out_packet == NULL || ctx->pending_count <= 0) {
-        return 1;
+    if (ctx == NULL || out_packet == NULL) {
+        return IPC_EINVAL;
+    }
+
+    if (ctx->pending_count <= 0) {
+        return IPC_EAGAIN;
+    }
+
+    if (ctx->packet == NULL || ctx->codec_ctx == NULL) {
+        return IPC_ESTATE;
     }
 
     av_packet_unref(ctx->packet);
@@ -79,21 +87,21 @@ static int h264_ffmpeg_queue_packet(H264FFmpegEncoderContext *ctx,
 
     if (ctx == NULL || src_packet == NULL ||
         ctx->pending_count >= H264_PENDING_PACKET_COUNT) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     packet = av_packet_alloc();
     if (packet == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     if (av_packet_ref(packet, src_packet) < 0) {
         av_packet_free(&packet);
-        return -1;
+        return IPC_ECODEC;
     }
 
     ctx->pending_packets[ctx->pending_count++] = packet;
-    return 0;
+    return IPC_OK;
 }
 
 static int h264_ffmpeg_receive_packets(H264FFmpegEncoderContext *ctx)
@@ -102,30 +110,39 @@ static int h264_ffmpeg_receive_packets(H264FFmpegEncoderContext *ctx)
     int ret;
 
     if (ctx == NULL) {
-        return -1;
+        return IPC_EINVAL;
+    }
+
+    if (ctx->codec_ctx == NULL) {
+        return IPC_ESTATE;
     }
 
     packet = av_packet_alloc();
     if (packet == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     while (1) {
         av_packet_unref(packet);
         ret = avcodec_receive_packet(ctx->codec_ctx, packet);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+        if (ret == AVERROR(EAGAIN)) {
             av_packet_free(&packet);
-            return 0;
+            return IPC_EAGAIN;
+        }
+        if (ret == AVERROR_EOF) {
+            av_packet_free(&packet);
+            return IPC_EOF;
         }
         if (ret < 0) {
             fprintf(stderr, "[h264_ffmpeg] avcodec_receive_packet failed: %d\n", ret);
             av_packet_free(&packet);
-            return -1;
+            return IPC_ECODEC;
         }
 
-        if (h264_ffmpeg_queue_packet(ctx, packet) < 0) {
+        ret = h264_ffmpeg_queue_packet(ctx, packet);
+        if (ret != IPC_OK) {
             av_packet_free(&packet);
-            return -1;
+            return ret;
         }
     }
 }
@@ -139,31 +156,31 @@ static int h264_ffmpeg_init(EncoderManager *manager)
         manager->config.height <= 0 || manager->config.fps <= 0 ||
         manager->config.bitrate <= 0 || manager->config.gop <= 0 ||
         manager->config.codec != CODEC_H264) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     codec = avcodec_find_encoder(AV_CODEC_ID_H264);
     if (codec == NULL) {
         fprintf(stderr, "[h264_ffmpeg] avcodec_find_encoder failed\n");
-        return -1;
+        return IPC_ECODEC;
     }
 
     ctx = (H264FFmpegEncoderContext *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->codec_ctx = avcodec_alloc_context3(codec);
     if (ctx->codec_ctx == NULL) {
         free(ctx);
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->packet = av_packet_alloc();
     if (ctx->packet == NULL) {
         avcodec_free_context(&ctx->codec_ctx);
         free(ctx);
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->codec_ctx->width = manager->config.width;
@@ -190,7 +207,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
         av_packet_free(&ctx->packet);
         avcodec_free_context(&ctx->codec_ctx);
         free(ctx);
-        return -1;
+        return IPC_ECODEC;
     }
 
     if (ctx->codec_ctx->extradata == NULL ||
@@ -199,7 +216,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
         av_packet_free(&ctx->packet);
         avcodec_free_context(&ctx->codec_ctx);
         free(ctx);
-        return -1;
+        return IPC_ECODEC;
     }
 
     ctx->extradata = (uint8_t *)av_mallocz((size_t)ctx->codec_ctx->extradata_size +
@@ -208,7 +225,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
         av_packet_free(&ctx->packet);
         avcodec_free_context(&ctx->codec_ctx);
         free(ctx);
-        return -1;
+        return IPC_ENOMEM;
     }
 
     memcpy(ctx->extradata,
@@ -219,7 +236,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
     manager->priv = ctx;
     printf("[h264_ffmpeg] init\n");
 
-    return 0;
+    return IPC_OK;
 }
 
 static void h264_ffmpeg_deinit(EncoderManager *manager)
@@ -251,17 +268,24 @@ static int h264_ffmpeg_encode(EncoderManager *manager,
     AVFrame av_frame;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL || src_frame == NULL ||
-        out_packet == NULL || src_frame->pixfmt != PIX_FMT_YUV420P ||
+    if (manager == NULL || src_frame == NULL || out_packet == NULL ||
         src_frame->data[0] == NULL || src_frame->data[1] == NULL ||
         src_frame->data[2] == NULL || src_frame->linesize[0] <= 0 ||
         src_frame->linesize[1] <= 0 || src_frame->linesize[2] <= 0) {
-        return -1;
+        return IPC_EINVAL;
+    }
+
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
+    }
+
+    if (src_frame->pixfmt != PIX_FMT_YUV420P) {
+        return IPC_EUNSUPPORTED;
     }
 
     ctx = (H264FFmpegEncoderContext *)manager->priv;
-    if (ctx->flushing) {
-        return -1;
+    if (ctx->codec_ctx == NULL || ctx->packet == NULL || ctx->flushing) {
+        return IPC_ESTATE;
     }
 
     MediaPacket_Unref(out_packet);
@@ -282,27 +306,29 @@ static int h264_ffmpeg_encode(EncoderManager *manager,
         av_frame.height != ctx->codec_ctx->height ||
         av_image_check_size((unsigned int)av_frame.width,
                             (unsigned int)av_frame.height, 0, NULL) < 0) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ret = avcodec_send_frame(ctx->codec_ctx, &av_frame);
     if (ret == AVERROR(EAGAIN)) {
-        if (h264_ffmpeg_receive_packets(ctx) < 0) {
-            return -1;
+        ret = h264_ffmpeg_receive_packets(ctx);
+        if (ret < 0) {
+            return ret;
         }
         ret = avcodec_send_frame(ctx->codec_ctx, &av_frame);
     }
     if (ret < 0) {
         fprintf(stderr, "[h264_ffmpeg] avcodec_send_frame failed: %d\n", ret);
-        return -1;
+        return IPC_ECODEC;
     }
 
-    if (h264_ffmpeg_receive_packets(ctx) < 0) {
-        return -1;
+    ret = h264_ffmpeg_receive_packets(ctx);
+    if (ret < 0) {
+        return ret;
     }
 
     ret = h264_ffmpeg_pop_packet(ctx, out_packet);
-    if (ret == 0) {
+    if (ret == IPC_OK) {
         printf("[h264_ffmpeg] encode\n");
     }
     return ret;
@@ -313,32 +339,47 @@ static int h264_ffmpeg_flush(EncoderManager *manager, MediaPacket *out_packet)
     H264FFmpegEncoderContext *ctx;
     int ret;
 
-    if (manager == NULL || manager->priv == NULL || out_packet == NULL) {
-        return -1;
+    if (manager == NULL || out_packet == NULL) {
+        return IPC_EINVAL;
+    }
+
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (H264FFmpegEncoderContext *)manager->priv;
+    if (ctx->codec_ctx == NULL || ctx->packet == NULL) {
+        return IPC_ESTATE;
+    }
+
     MediaPacket_Unref(out_packet);
 
     if (!ctx->flushing) {
         ret = avcodec_send_frame(ctx->codec_ctx, NULL);
         if (ret < 0 && ret != AVERROR_EOF) {
             fprintf(stderr, "[h264_ffmpeg] flush send failed: %d\n", ret);
-            return -1;
+            return IPC_ECODEC;
         }
         ctx->flushing = 1;
     }
 
-    if (h264_ffmpeg_receive_packets(ctx) < 0) {
-        return -1;
+    ret = h264_ffmpeg_receive_packets(ctx);
+    if (ret < 0) {
+        return ret;
     }
 
+    int receive_ret = ret;
     ret = h264_ffmpeg_pop_packet(ctx, out_packet);
-    if (ret == 0) {
+    if (ret == IPC_OK) {
         printf("[h264_ffmpeg] flush\n");
+        return IPC_OK;
     }
 
-    return ret == 0 ? 0 : -1;
+    if (ret == IPC_EAGAIN && receive_ret == IPC_EOF) {
+        return IPC_EOF;
+    }
+
+    return ret;
 }
 
 const EncoderOps g_h264_ffmpeg_encoder_ops = {

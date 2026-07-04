@@ -10,33 +10,33 @@ static size_t g_frame_processor_ops_count;
 
 static int frame_processor_validate_name(const char *name)
 {
-    return (name != NULL && name[0] != '\0') ? 0 : -1;
+    return (name != NULL && name[0] != '\0') ? IPC_OK : IPC_EINVAL;
 }
 
 int FrameProcessorManager_Register(const FrameProcessorOps *ops)
 {
     if (ops == NULL || ops->name == NULL || ops->name[0] == '\0') {
-        return -1;
+        return IPC_EINVAL;
     }
 
     for (size_t i = 0; i < g_frame_processor_ops_count; ++i) {
         if (strcmp(g_frame_processor_ops_table[i]->name, ops->name) == 0) {
             g_frame_processor_ops_table[i] = ops;
-            return 0;
+            return IPC_OK;
         }
     }
 
     if (g_frame_processor_ops_count >= FRAME_PROCESSOR_MAX_OPS) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     g_frame_processor_ops_table[g_frame_processor_ops_count++] = ops;
-    return 0;
+    return IPC_OK;
 }
 
 const FrameProcessorOps *FrameProcessorManager_Find(const char *processor_name)
 {
-    if (frame_processor_validate_name(processor_name) < 0) {
+    if (frame_processor_validate_name(processor_name) != IPC_OK) {
         return NULL;
     }
 
@@ -55,13 +55,13 @@ int FrameProcessorManager_Init(FrameProcessorManager *manager,
 {
     const FrameProcessorOps *ops;
 
-    if (manager == NULL || frame_processor_validate_name(processor_name) < 0) {
-        return -1;
+    if (manager == NULL || frame_processor_validate_name(processor_name) != IPC_OK) {
+        return IPC_EINVAL;
     }
 
     ops = FrameProcessorManager_Find(processor_name);
     if (ops == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     memset(manager, 0, sizeof(*manager));
@@ -77,7 +77,7 @@ int FrameProcessorManager_Init(FrameProcessorManager *manager,
         return manager->ops->init(manager);
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 void FrameProcessorManager_Deinit(FrameProcessorManager *manager)
@@ -95,9 +95,11 @@ int FrameProcessorManager_Process(FrameProcessorManager *manager,
                                   MediaFrame *in,
                                   MediaFrame *out)
 {
-    if (manager == NULL || in == NULL || out == NULL ||
-        manager->ops == NULL || manager->ops->process == NULL) {
-        return -1;
+    if (manager == NULL || in == NULL || out == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->ops == NULL || manager->ops->process == NULL) {
+        return IPC_ESTATE;
     }
 
     return manager->ops->process(manager, in, out);

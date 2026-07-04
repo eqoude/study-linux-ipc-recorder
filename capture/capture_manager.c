@@ -10,33 +10,33 @@ static size_t g_capture_ops_count;
 
 static int capture_validate_name(const char *name)
 {
-    return (name != NULL && name[0] != '\0') ? 0 : -1;
+    return (name != NULL && name[0] != '\0') ? IPC_OK : IPC_EINVAL;
 }
 
 int CaptureManager_Register(const CaptureOps *ops)
 {
     if (ops == NULL || ops->name == NULL || ops->name[0] == '\0') {
-        return -1;
+        return IPC_EINVAL;
     }
 
     for (size_t i = 0; i < g_capture_ops_count; ++i) {
         if (strcmp(g_capture_ops_table[i]->name, ops->name) == 0) {
             g_capture_ops_table[i] = ops;
-            return 0;
+            return IPC_OK;
         }
     }
 
     if (g_capture_ops_count >= CAPTURE_MAX_OPS) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     g_capture_ops_table[g_capture_ops_count++] = ops;
-    return 0;
+    return IPC_OK;
 }
 
 const CaptureOps *CaptureManager_Find(const char *capture_name)
 {
-    if (capture_validate_name(capture_name) < 0) {
+    if (capture_validate_name(capture_name) != IPC_OK) {
         return NULL;
     }
 
@@ -59,12 +59,12 @@ int CaptureManager_Init(CaptureManager *manager,
         config == NULL || config->device_path == NULL ||
         config->device_path[0] == '\0' || config->width <= 0 ||
         config->height <= 0 || config->fps <= 0) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ops = CaptureManager_Find(capture_name);
     if (ops == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     memset(manager, 0, sizeof(*manager));
@@ -82,7 +82,7 @@ int CaptureManager_Init(CaptureManager *manager,
         return manager->ops->init(manager);
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 void CaptureManager_Deinit(CaptureManager *manager)
@@ -98,8 +98,11 @@ void CaptureManager_Deinit(CaptureManager *manager)
 
 int CaptureManager_Open(CaptureManager *manager)
 {
-    if (manager == NULL || manager->ops == NULL || manager->ops->open == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->ops == NULL || manager->ops->open == NULL) {
+        return IPC_ESTATE;
     }
 
     return manager->ops->open(manager);
@@ -116,8 +119,11 @@ void CaptureManager_Close(CaptureManager *manager)
 
 int CaptureManager_Start(CaptureManager *manager)
 {
-    if (manager == NULL || manager->ops == NULL || manager->ops->start == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->ops == NULL || manager->ops->start == NULL) {
+        return IPC_ESTATE;
     }
 
     return manager->ops->start(manager);
@@ -134,9 +140,11 @@ void CaptureManager_Stop(CaptureManager *manager)
 
 int CaptureManager_GetFrame(CaptureManager *manager, MediaFrame *frame)
 {
-    if (manager == NULL || frame == NULL || manager->ops == NULL ||
-        manager->ops->get_frame == NULL) {
-        return -1;
+    if (manager == NULL || frame == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->ops == NULL || manager->ops->get_frame == NULL) {
+        return IPC_ESTATE;
     }
 
     return manager->ops->get_frame(manager, frame);
@@ -144,9 +152,11 @@ int CaptureManager_GetFrame(CaptureManager *manager, MediaFrame *frame)
 
 int CaptureManager_ReleaseFrame(CaptureManager *manager, MediaFrame *frame)
 {
-    if (manager == NULL || frame == NULL || manager->ops == NULL ||
-        manager->ops->release_frame == NULL) {
-        return 0;
+    if (manager == NULL || frame == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->ops == NULL || manager->ops->release_frame == NULL) {
+        return IPC_ESTATE;
     }
 
     return manager->ops->release_frame(manager, frame);

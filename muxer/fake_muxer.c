@@ -4,9 +4,12 @@
 
 static int fake_muxer_init(MuxerManager *manager)
 {
-    (void)manager;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_muxer] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void fake_muxer_deinit(MuxerManager *manager)
@@ -17,9 +20,12 @@ static void fake_muxer_deinit(MuxerManager *manager)
 
 static int fake_muxer_open(MuxerManager *manager)
 {
-    (void)manager;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+
     printf("[fake_muxer] open\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void fake_muxer_close(MuxerManager *manager)
@@ -30,13 +36,12 @@ static void fake_muxer_close(MuxerManager *manager)
 
 static int fake_muxer_write_packet(MuxerManager *manager, const MediaPacket *packet)
 {
-    (void)manager;
-    if (packet == NULL) {
-        return -1;
+    if (manager == NULL || packet == NULL) {
+        return IPC_EINVAL;
     }
 
     printf("[fake_muxer] write_packet size=%d codec=%d\n", packet->size, packet->codec);
-    return 0;
+    return IPC_OK;
 }
 
 const MuxerOps g_fake_muxer_ops = {

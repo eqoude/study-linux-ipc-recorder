@@ -20,6 +20,7 @@ typedef struct {
     volatile int ready;
     volatile int dirty;
     int init_result;
+    volatile int error_result;
     char title[128];
 } SdlDisplayContext;
 
@@ -36,7 +37,7 @@ static int sdl_display_copy_frame(SdlDisplayContext *ctx, const MediaFrame *fram
         frame->height != ctx->height || frame->linesize[0] < ctx->width ||
         frame->linesize[1] < ctx->width / 2 ||
         frame->linesize[2] < ctx->width / 2) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     size = ctx->width * ctx->height * 3 / 2;
@@ -44,7 +45,7 @@ static int sdl_display_copy_frame(SdlDisplayContext *ctx, const MediaFrame *fram
         unsigned char *buffer = (unsigned char *)realloc(ctx->frame_buffer,
                                                          (size_t)size);
         if (buffer == NULL) {
-            return -1;
+            return IPC_ENOMEM;
         }
         ctx->frame_buffer = buffer;
         ctx->frame_size = size;
@@ -70,7 +71,7 @@ static int sdl_display_copy_frame(SdlDisplayContext *ctx, const MediaFrame *fram
     }
 
     ctx->dirty = 1;
-    return 0;
+    return IPC_OK;
 }
 
 static int sdl_display_thread(void *arg)
@@ -80,9 +81,9 @@ static int sdl_display_thread(void *arg)
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         fprintf(stderr, "[sdl_display] SDL_Init failed: %s\n", SDL_GetError());
-        ctx->init_result = -1;
+        ctx->init_result = IPC_EIO;
         ctx->ready = 1;
-        return -1;
+        return IPC_EIO;
     }
 
     ctx->window = SDL_CreateWindow(ctx->title,
@@ -93,10 +94,10 @@ static int sdl_display_thread(void *arg)
                                    SDL_WINDOW_SHOWN);
     if (ctx->window == NULL) {
         fprintf(stderr, "[sdl_display] SDL_CreateWindow failed: %s\n", SDL_GetError());
-        ctx->init_result = -1;
+        ctx->init_result = IPC_EIO;
         ctx->ready = 1;
         SDL_Quit();
-        return -1;
+        return IPC_EIO;
     }
 
     ctx->renderer = SDL_CreateRenderer(ctx->window, -1, SDL_RENDERER_ACCELERATED);
@@ -105,11 +106,11 @@ static int sdl_display_thread(void *arg)
     }
     if (ctx->renderer == NULL) {
         fprintf(stderr, "[sdl_display] SDL_CreateRenderer failed: %s\n", SDL_GetError());
-        ctx->init_result = -1;
+        ctx->init_result = IPC_EIO;
         ctx->ready = 1;
         SDL_DestroyWindow(ctx->window);
         SDL_Quit();
-        return -1;
+        return IPC_EIO;
     }
 
     ctx->texture = SDL_CreateTexture(ctx->renderer,
@@ -119,15 +120,15 @@ static int sdl_display_thread(void *arg)
                                      ctx->height);
     if (ctx->texture == NULL) {
         fprintf(stderr, "[sdl_display] SDL_CreateTexture failed: %s\n", SDL_GetError());
-        ctx->init_result = -1;
+        ctx->init_result = IPC_EIO;
         ctx->ready = 1;
         SDL_DestroyRenderer(ctx->renderer);
         SDL_DestroyWindow(ctx->window);
         SDL_Quit();
-        return -1;
+        return IPC_EIO;
     }
 
-    ctx->init_result = 0;
+    ctx->init_result = IPC_OK;
     ctx->ready = 1;
 
     while (ctx->running) {
@@ -143,21 +144,35 @@ static int sdl_display_thread(void *arg)
                 unsigned char *u_plane = y_plane + ctx->width * ctx->height;
                 unsigned char *v_plane = u_plane + ctx->width * ctx->height / 4;
 
-                SDL_UpdateYUVTexture(ctx->texture,
-                                     NULL,
-                                     y_plane,
-                                     ctx->width,
-                                     u_plane,
-                                     ctx->width / 2,
-                                     v_plane,
-                                     ctx->width / 2);
+                if (SDL_UpdateYUVTexture(ctx->texture,
+                                         NULL,
+                                         y_plane,
+                                         ctx->width,
+                                         u_plane,
+                                         ctx->width / 2,
+                                         v_plane,
+                                         ctx->width / 2) != 0) {
+                    fprintf(stderr,
+                            "[sdl_display] SDL_UpdateYUVTexture failed: %s\n",
+                            SDL_GetError());
+                    ctx->error_result = IPC_EIO;
+                    ctx->running = 0;
+                }
                 ctx->dirty = 0;
             }
             SDL_UnlockMutex(ctx->mutex);
         }
 
-        SDL_RenderClear(ctx->renderer);
-        SDL_RenderCopy(ctx->renderer, ctx->texture, NULL, NULL);
+        if (SDL_RenderClear(ctx->renderer) != 0) {
+            fprintf(stderr, "[sdl_display] SDL_RenderClear failed: %s\n", SDL_GetError());
+            ctx->error_result = IPC_EIO;
+            ctx->running = 0;
+        }
+        if (SDL_RenderCopy(ctx->renderer, ctx->texture, NULL, NULL) != 0) {
+            fprintf(stderr, "[sdl_display] SDL_RenderCopy failed: %s\n", SDL_GetError());
+            ctx->error_result = IPC_EIO;
+            ctx->running = 0;
+        }
         SDL_RenderPresent(ctx->renderer);
         SDL_Delay(1);
     }
@@ -170,7 +185,7 @@ static int sdl_display_thread(void *arg)
     ctx->texture = NULL;
     ctx->renderer = NULL;
     ctx->window = NULL;
-    return 0;
+    return IPC_OK;
 }
 
 static int sdl_display_init(void *manager)
@@ -179,12 +194,12 @@ static int sdl_display_init(void *manager)
     SdlDisplayContext *ctx;
 
     if (viewer == NULL) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ctx = (SdlDisplayContext *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->width = viewer->config.width > 0 ? viewer->config.width : 640;
@@ -195,16 +210,17 @@ static int sdl_display_init(void *manager)
     ctx->mutex = SDL_CreateMutex();
     if (ctx->mutex == NULL) {
         free(ctx);
-        return -1;
+        return IPC_EIO;
     }
 
     ctx->running = 1;
-    ctx->init_result = -1;
+    ctx->init_result = IPC_ERROR;
+    ctx->error_result = IPC_OK;
     ctx->thread = SDL_CreateThread(sdl_display_thread, "sdl_display", ctx);
     if (ctx->thread == NULL) {
         SDL_DestroyMutex(ctx->mutex);
         free(ctx);
-        return -1;
+        return IPC_ETHREAD;
     }
 
     while (!ctx->ready) {
@@ -212,16 +228,17 @@ static int sdl_display_init(void *manager)
     }
 
     if (ctx->init_result < 0) {
+        int init_result = ctx->init_result;
         ctx->running = 0;
         SDL_WaitThread(ctx->thread, NULL);
         SDL_DestroyMutex(ctx->mutex);
         free(ctx);
-        return -1;
+        return init_result;
     }
 
     viewer->priv = ctx;
     printf("[sdl_display] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static int sdl_display_display(void *manager, MediaFrame *frame)
@@ -230,17 +247,27 @@ static int sdl_display_display(void *manager, MediaFrame *frame)
     SdlDisplayContext *ctx;
     int ret;
 
-    if (viewer == NULL || viewer->priv == NULL || frame == NULL) {
-        return -1;
+    if (viewer == NULL || frame == NULL) {
+        return IPC_EINVAL;
+    }
+    if (viewer->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (SdlDisplayContext *)viewer->priv;
     if (!ctx->running) {
-        return 1;
+        if (ctx->error_result < 0) {
+            return ctx->error_result;
+        }
+        return IPC_EOF;
+    }
+
+    if (ctx->mutex == NULL) {
+        return IPC_ESTATE;
     }
 
     if (SDL_TryLockMutex(ctx->mutex) != 0) {
-        return 0;
+        return IPC_OK;
     }
 
     ret = sdl_display_copy_frame(ctx, frame);

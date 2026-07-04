@@ -217,7 +217,79 @@ ffplay output/test.mp4
 ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/live
 ```
 
-## 8. 当前已知问题
+### 7.5 错误码机制测试
+
+```bash
+make test-error
+```
+
+该目标会验证：
+
+- `IpcError_ToString()` 是否能输出可读错误信息
+- `MediaPacket` 是否按 `IPC_OK / IPC_EINVAL / IPC_ENOMEM` 返回
+- `FrameQueue / PacketQueue` 是否按 `IPC_OK / IPC_EOF / IPC_EINVAL` 返回
+- `AppPipeline` 错误日志是否包含错误字符串和错误码
+
+成功时输出：
+
+```text
+All error handling tests passed.
+```
+
+## 8. 统一错误码机制
+
+项目已引入统一错误码 `IpcResult`，定义在 `core/ipc_error.h`。
+
+核心语义：
+
+- `IPC_OK = 0`：成功
+- `IPC_EAGAIN = 1`：暂时无数据，不是严重错误
+- `IPC_EOF = 2`：正常结束，例如队列关闭、flush 完成、`--help` 或用户关闭预览窗口
+- 负数：真正错误，例如参数错误、IO 错误、编码错误、muxer 错误
+
+当前已迁移模块：
+
+- `core`
+- `capture`
+- `converter`
+- `encoder`
+- `muxer`
+- `viewer`
+- `frame_processor`
+- `module_register`
+- `app_config`
+- `app_pipeline`
+
+`AppPipeline` 处理规则：
+
+```text
+IPC_OK      -> 继续
+IPC_EAGAIN  -> 继续等待
+IPC_EOF     -> 正常退出
+ret < 0     -> 打印 IpcError_ToString(ret)，设置 error 并 stop
+```
+
+`main.c` 是 IPC 错误码到 shell 进程退出码的边界：
+
+- `--help` 返回 `IPC_EOF`，进程退出码为 `0`
+- 参数错误返回负数，进程退出码为 `1`
+- pipeline 错误返回进程退出码 `1`
+
+详细说明：
+
+```text
+docs/architecture/error_handling.md
+docs/project/error_test_report.md
+```
+
+该机制对调试很直接：
+
+- V4L2 设备打不开会显示 `Open failed (-4)`
+- V4L2 ioctl 失败会显示 `I/O error (-5)`
+- MP4 muxer 失败会显示 `Muxer error (-9)`
+- RTSP Server 未启动会显示 `Open failed (-4)` 并提示先启动 mediamtx
+
+## 9. 当前已知问题
 
 - 当前 V4L2 插件未实现 `VIDIOC_QUERYCAP`、`VIDIOC_G_FMT`、`VIDIOC_S_PARM`，格式能力检测仍需完善。
 - `FrameQueue` 会 deep copy frame 数据，可靠但增加内存带宽消耗。
@@ -227,7 +299,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/live
 - SDL Preview 需要本地图形环境。
 - 当前日志较多，逐帧打印会影响性能测试。
 
-## 9. 建议阅读顺序
+## 10. 建议阅读顺序
 
 先看：
 
@@ -243,12 +315,7 @@ docs/architecture/app_pipeline.md
 docs/architecture/thread_queue.md
 docs/architecture/data_contract.md
 docs/architecture/plugin_register.md
+docs/architecture/error_handling.md
 ```
 
 然后按模块阅读 capture / converter / encoder / muxer / viewer / processor 文档。
-
-git init
-git rev-parse --show-toplevel
-git status
-git status --short
-git status --ignored --short

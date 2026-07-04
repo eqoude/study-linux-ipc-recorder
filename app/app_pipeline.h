@@ -14,8 +14,10 @@
 #include "../viewer/sdl_display_manager.h"
 
 typedef struct {
+    // 1. 配置参数
     AppConfig config;
 
+    // 2. 各功能模块 Manager
     CaptureManager capture;
     ConverterManager converter;
     FrameProcessorManager processor;
@@ -24,18 +26,22 @@ typedef struct {
     MuxerManager rtsp_muxer;
     ViewerManager viewer;
 
+    // 3. 多线程队列
     FrameQueue raw_queue;
     FrameQueue encode_queue;
     PacketQueue packet_queue;
 
+    // 4. 线程句柄
     pthread_t capture_thread;
     pthread_t process_thread;
     pthread_t encode_thread;
     pthread_t mux_thread;
 
+    // 5. 全局控制状态
     volatile int stop;
     int error;
 
+    // 6. 资源状态标志位
     int capture_inited;
     int converter_inited;
     int processor_inited;

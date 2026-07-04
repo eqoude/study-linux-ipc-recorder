@@ -10,14 +10,14 @@ static size_t g_viewer_ops_count;
 
 static int viewer_validate_name(const char *name)
 {
-    return (name != NULL && name[0] != '\0') ? 0 : -1;
+    return (name != NULL && name[0] != '\0') ? IPC_OK : IPC_EINVAL;
 }
 
 int RegisterViewer(const char *name, const ViewerOps *ops)
 {
-    if (viewer_validate_name(name) < 0 || ops == NULL ||
+    if (viewer_validate_name(name) != IPC_OK || ops == NULL ||
         ops->name == NULL || strcmp(name, ops->name) != 0) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     return ViewerManager_Register(ops);
@@ -26,27 +26,27 @@ int RegisterViewer(const char *name, const ViewerOps *ops)
 int ViewerManager_Register(const ViewerOps *ops)
 {
     if (ops == NULL || ops->name == NULL || ops->name[0] == '\0') {
-        return -1;
+        return IPC_EINVAL;
     }
 
     for (size_t i = 0; i < g_viewer_ops_count; ++i) {
         if (strcmp(g_viewer_ops_table[i]->name, ops->name) == 0) {
             g_viewer_ops_table[i] = ops;
-            return 0;
+            return IPC_OK;
         }
     }
 
     if (g_viewer_ops_count >= VIEWER_MAX_OPS) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     g_viewer_ops_table[g_viewer_ops_count++] = ops;
-    return 0;
+    return IPC_OK;
 }
 
 const ViewerOps *ViewerManager_Find(const char *viewer_name)
 {
-    if (viewer_validate_name(viewer_name) < 0) {
+    if (viewer_validate_name(viewer_name) != IPC_OK) {
         return NULL;
     }
 
@@ -66,12 +66,12 @@ int ViewerManager_Init(ViewerManager *manager,
     const ViewerOps *ops;
 
     if (manager == NULL || viewer_validate_name(viewer_name) < 0) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ops = ViewerManager_Find(viewer_name);
     if (ops == NULL) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     memset(manager, 0, sizeof(*manager));
@@ -86,7 +86,7 @@ int ViewerManager_Init(ViewerManager *manager,
         return manager->ops->init(manager);
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 void ViewerManager_Deinit(ViewerManager *manager)
@@ -102,9 +102,11 @@ void ViewerManager_Deinit(ViewerManager *manager)
 
 int ViewerManager_Display(ViewerManager *manager, MediaFrame *frame)
 {
-    if (manager == NULL || frame == NULL || manager->ops == NULL ||
-        manager->ops->display == NULL) {
-        return -1;
+    if (manager == NULL || frame == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->ops == NULL || manager->ops->display == NULL) {
+        return IPC_ESTATE;
     }
 
     return manager->ops->display(manager, frame);

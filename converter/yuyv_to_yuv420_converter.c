@@ -18,8 +18,6 @@ static int yuyv_to_yuv420_init(ConverterManager *manager)
     int size;
 
     if (manager == NULL ||
-        manager->config.src_format != PIX_FMT_YUYV422 ||
-        manager->config.dst_format != PIX_FMT_YUV420P ||
         manager->config.src_width <= 0 ||
         manager->config.src_height <= 0 ||
         manager->config.dst_width <= 0 ||
@@ -28,7 +26,12 @@ static int yuyv_to_yuv420_init(ConverterManager *manager)
         manager->config.src_height != manager->config.dst_height ||
         (manager->config.dst_width % 2) != 0 ||
         (manager->config.dst_height % 2) != 0) {
-        return -1;
+        return IPC_EINVAL;
+    }
+
+    if (manager->config.src_format != PIX_FMT_YUYV422 ||
+        manager->config.dst_format != PIX_FMT_YUV420P) {
+        return IPC_EUNSUPPORTED;
     }
 
     width = manager->config.dst_width;
@@ -37,13 +40,13 @@ static int yuyv_to_yuv420_init(ConverterManager *manager)
 
     ctx = (YUYVToYUV420Context *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->buffer = (unsigned char *)malloc((size_t)size);
     if (ctx->buffer == NULL) {
         free(ctx);
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->width = width;
@@ -52,7 +55,7 @@ static int yuyv_to_yuv420_init(ConverterManager *manager)
     manager->priv = ctx;
 
     printf("[yuyv_to_yuv420] init\n");
-    return 0;
+    return IPC_OK;
 }
 
 static void yuyv_to_yuv420_deinit(ConverterManager *manager)
@@ -83,10 +86,17 @@ static int yuyv_to_yuv420_convert(ConverterManager *manager,
     int width;
     int height;
 
-    if (manager == NULL || manager->priv == NULL || src_frame == NULL ||
-        dst_frame == NULL || src_frame->pixfmt != PIX_FMT_YUYV422 ||
+    if (manager == NULL || src_frame == NULL || dst_frame == NULL ||
         src_frame->data[0] == NULL || src_frame->linesize[0] <= 0) {
-        return -1;
+        return IPC_EINVAL;
+    }
+
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
+    }
+
+    if (src_frame->pixfmt != PIX_FMT_YUYV422) {
+        return IPC_EUNSUPPORTED;
     }
 
     ctx = (YUYVToYUV420Context *)manager->priv;
@@ -95,7 +105,7 @@ static int yuyv_to_yuv420_convert(ConverterManager *manager,
 
     if (src_frame->width != width || src_frame->height != height ||
         src_frame->linesize[0] < width * 2) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     src = src_frame->data[0];
@@ -143,7 +153,7 @@ static int yuyv_to_yuv420_convert(ConverterManager *manager,
     dst_frame->pts = src_frame->pts;
 
     printf("[yuyv_to_yuv420] convert\n");
-    return 0;
+    return IPC_OK;
 }
 
 const ConverterOps g_yuyv_to_yuv420_ops = {

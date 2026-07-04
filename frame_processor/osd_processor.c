@@ -67,12 +67,12 @@ static int osd_processor_init(void *manager)
     OsdProcessorContext *ctx;
 
     if (processor == NULL) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ctx = (OsdProcessorContext *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     if (processor->config.width <= 0) {
@@ -85,7 +85,7 @@ static int osd_processor_init(void *manager)
     processor->priv = ctx;
     printf("[osd_processor] init\n");
 
-    return 0;
+    return IPC_OK;
 }
 
 static void osd_processor_deinit(void *manager)
@@ -118,13 +118,20 @@ static int osd_processor_process(void *manager,
     int height;
     int size;
 
-    if (processor == NULL || processor->priv == NULL || in == NULL ||
-        out == NULL || in->pixfmt != PIX_FMT_YUV420P ||
-        in->data[0] == NULL || in->data[1] == NULL || in->data[2] == NULL ||
+    if (processor == NULL || in == NULL || out == NULL) {
+        return IPC_EINVAL;
+    }
+    if (processor->priv == NULL) {
+        return IPC_ESTATE;
+    }
+    if (in->pixfmt != PIX_FMT_YUV420P) {
+        return IPC_EUNSUPPORTED;
+    }
+    if (in->data[0] == NULL || in->data[1] == NULL || in->data[2] == NULL ||
         in->linesize[0] <= 0 || in->linesize[1] <= 0 ||
         in->linesize[2] <= 0 || in->width <= 0 || in->height <= 0 ||
         (in->width % 2) != 0 || (in->height % 2) != 0) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     ctx = (OsdProcessorContext *)processor->priv;
@@ -135,7 +142,7 @@ static int osd_processor_process(void *manager,
     if (ctx->buffer_size < size) {
         unsigned char *buffer = (unsigned char *)realloc(ctx->buffer, (size_t)size);
         if (buffer == NULL) {
-            return -1;
+            return IPC_ENOMEM;
         }
         ctx->buffer = buffer;
         ctx->buffer_size = size;
@@ -179,7 +186,7 @@ static int osd_processor_process(void *manager,
                          processor->config.height);
 
     printf("[osd_processor] process\n");
-    return 0;
+    return IPC_OK;
 }
 
 const FrameProcessorOps g_osd_processor_ops = {

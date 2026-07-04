@@ -43,7 +43,7 @@ static int v4l2_capture_queue_buffer(V4L2CaptureContext *ctx, unsigned int index
     struct v4l2_buffer buffer;
 
     if (ctx == NULL || index >= ctx->buffer_count) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     memset(&buffer, 0, sizeof(buffer));
@@ -53,31 +53,34 @@ static int v4l2_capture_queue_buffer(V4L2CaptureContext *ctx, unsigned int index
 
     if (v4l2_ioctl(ctx->fd, VIDIOC_QBUF, &buffer) < 0) {
         perror("[v4l2] VIDIOC_QBUF");
-        return -1;
+        return IPC_EIO;
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 static int v4l2_capture_init(CaptureManager *manager)
 {
     V4L2CaptureContext *ctx;
 
-    if (manager == NULL || manager->width <= 0 || manager->height <= 0 ||
-        manager->pixel_format != PIX_FMT_YUYV422) {
-        return -1;
+    if (manager == NULL || manager->width <= 0 || manager->height <= 0) {
+        return IPC_EINVAL;
+    }
+
+    if (manager->pixel_format != PIX_FMT_YUYV422) {
+        return IPC_EUNSUPPORTED;
     }
 
     ctx = (V4L2CaptureContext *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
 
     ctx->fd = -1;
     manager->priv = ctx;
     printf("[v4l2] init\n");
 
-    return 0;
+    return IPC_OK;
 }
 
 static void v4l2_capture_deinit(CaptureManager *manager)
@@ -113,15 +116,18 @@ static int v4l2_capture_open(CaptureManager *manager)
     struct v4l2_format format;
     struct v4l2_requestbuffers request;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (V4L2CaptureContext *)manager->priv;
     ctx->fd = open(manager->device_path, O_RDWR);
     if (ctx->fd < 0) {
         perror("[v4l2] open");
-        return -1;
+        return IPC_EOPEN;
     }
 
     memset(&format, 0, sizeof(format));
@@ -133,7 +139,12 @@ static int v4l2_capture_open(CaptureManager *manager)
 
     if (v4l2_ioctl(ctx->fd, VIDIOC_S_FMT, &format) < 0) {
         perror("[v4l2] VIDIOC_S_FMT");
-        return -1;
+        return IPC_EIO;
+    }
+
+    if (format.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
+        fprintf(stderr, "[v4l2] unsupported pixel format\n");
+        return IPC_EUNSUPPORTED;
     }
 
     memset(&request, 0, sizeof(request));
@@ -143,17 +154,17 @@ static int v4l2_capture_open(CaptureManager *manager)
 
     if (v4l2_ioctl(ctx->fd, VIDIOC_REQBUFS, &request) < 0) {
         perror("[v4l2] VIDIOC_REQBUFS");
-        return -1;
+        return IPC_EIO;
     }
 
     if (request.count < V4L2_CAPTURE_BUFFER_COUNT) {
         fprintf(stderr, "[v4l2] insufficient buffers: %u\n", request.count);
-        return -1;
+        return IPC_EIO;
     }
 
     ctx->buffers = (V4L2CaptureBuffer *)calloc(request.count, sizeof(*ctx->buffers));
     if (ctx->buffers == NULL) {
-        return -1;
+        return IPC_ENOMEM;
     }
     ctx->buffer_count = request.count;
 
@@ -167,7 +178,7 @@ static int v4l2_capture_open(CaptureManager *manager)
 
         if (v4l2_ioctl(ctx->fd, VIDIOC_QUERYBUF, &buffer) < 0) {
             perror("[v4l2] VIDIOC_QUERYBUF");
-            return -1;
+            return IPC_EIO;
         }
 
         ctx->buffers[i].length = buffer.length;
@@ -176,18 +187,19 @@ static int v4l2_capture_open(CaptureManager *manager)
         if (ctx->buffers[i].start == MAP_FAILED) {
             ctx->buffers[i].start = NULL;
             perror("[v4l2] mmap");
-            return -1;
+            return IPC_EIO;
         }
 
-        if (v4l2_capture_queue_buffer(ctx, i) < 0) {
-            return -1;
+        int ret = v4l2_capture_queue_buffer(ctx, i);
+        if (ret != IPC_OK) {
+            return ret;
         }
     }
 
     manager->state = CAPTURE_STATE_READY;
     printf("[v4l2] open %s\n", manager->device_path);
 
-    return 0;
+    return IPC_OK;
 }
 
 static void v4l2_capture_close(CaptureManager *manager)
@@ -213,18 +225,21 @@ static int v4l2_capture_start(CaptureManager *manager)
     V4L2CaptureContext *ctx;
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
-    if (manager == NULL || manager->priv == NULL) {
-        return -1;
+    if (manager == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (V4L2CaptureContext *)manager->priv;
     if (ctx->fd < 0) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     if (v4l2_ioctl(ctx->fd, VIDIOC_STREAMON, &type) < 0) {
         perror("[v4l2] VIDIOC_STREAMON");
-        return -1;
+        return IPC_EIO;
     }
 
     ctx->frame_index = 0;
@@ -232,7 +247,7 @@ static int v4l2_capture_start(CaptureManager *manager)
     manager->state = CAPTURE_STATE_RUNNING;
     printf("[v4l2] start\n");
 
-    return 0;
+    return IPC_OK;
 }
 
 static void v4l2_capture_stop(CaptureManager *manager)
@@ -261,13 +276,16 @@ static int v4l2_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
     V4L2CaptureContext *ctx;
     struct v4l2_buffer buffer;
 
-    if (manager == NULL || manager->priv == NULL || frame == NULL) {
-        return -1;
+    if (manager == NULL || frame == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (V4L2CaptureContext *)manager->priv;
     if (ctx->fd < 0 || !ctx->streaming) {
-        return -1;
+        return IPC_ESTATE;
     }
 
     memset(&buffer, 0, sizeof(buffer));
@@ -275,12 +293,15 @@ static int v4l2_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
     buffer.memory = V4L2_MEMORY_MMAP;
 
     if (v4l2_ioctl(ctx->fd, VIDIOC_DQBUF, &buffer) < 0) {
+        if (errno == EAGAIN) {
+            return IPC_EAGAIN;
+        }
         perror("[v4l2] VIDIOC_DQBUF");
-        return -1;
+        return IPC_EIO;
     }
 
     if (buffer.index >= ctx->buffer_count) {
-        return -1;
+        return IPC_EIO;
     }
 
     memset(frame, 0, sizeof(*frame));
@@ -294,16 +315,18 @@ static int v4l2_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
 
     printf("[v4l2] get_frame index=%u size=%d\n", buffer.index, frame->size);
 
-    return 0;
+    return IPC_OK;
 }
 
 static int v4l2_capture_release_frame(CaptureManager *manager, MediaFrame *frame)
 {
     V4L2CaptureContext *ctx;
 
-    if (manager == NULL || manager->priv == NULL || frame == NULL ||
-        frame->data[0] == NULL) {
-        return -1;
+    if (manager == NULL || frame == NULL || frame->data[0] == NULL) {
+        return IPC_EINVAL;
+    }
+    if (manager->priv == NULL) {
+        return IPC_ESTATE;
     }
 
     ctx = (V4L2CaptureContext *)manager->priv;
@@ -314,7 +337,7 @@ static int v4l2_capture_release_frame(CaptureManager *manager, MediaFrame *frame
         }
     }
 
-    return -1;
+    return IPC_EINVAL;
 }
 
 const CaptureOps g_v4l2_capture_ops = {

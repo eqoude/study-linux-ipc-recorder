@@ -12,10 +12,14 @@ int main(int argc, char *argv[])
 
     AppConfig_SetDefault(&app_config);
     parse_ret = AppConfig_ParseArgs(&app_config, argc, argv);
-    if (parse_ret > 0) {
+    if (parse_ret == IPC_EOF) {
         return 0;
     }
-    if (parse_ret < 0) {
+    if (parse_ret != IPC_OK) {
+        fprintf(stderr,
+                "[main] AppConfig_ParseArgs failed: %s (%d)\n",
+                IpcError_ToString(parse_ret),
+                parse_ret);
         return 1;
     }
 
@@ -29,7 +33,7 @@ int main(int argc, char *argv[])
     AppConfig_Print(&app_config);
 
     ret = AppPipeline_Init(&pipeline, &app_config);
-    if (ret == 0) {
+    if (ret == IPC_OK) {
         ret = AppPipeline_Run(&pipeline);
     }
     AppPipeline_Deinit(&pipeline);

@@ -1,5 +1,7 @@
 #include "app_config.h"
 
+#include "ipc_error.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,28 +22,28 @@ static int app_config_parse_int(const char *text, int *value)
     long parsed;
 
     if (text == NULL || value == NULL || text[0] == '\0') {
-        return -1;
+        return IPC_EINVAL;
     }
 
     errno = 0;
     parsed = strtol(text, &end, 10);
     if (errno != 0 || end == text || *end != '\0' ||
         parsed < 0 || parsed > 2147483647L) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     *value = (int)parsed;
-    return 0;
+    return IPC_OK;
 }
 
 static int app_config_require_value(int index, int argc, const char *option)
 {
     if (index + 1 >= argc) {
         fprintf(stderr, "%s requires a value\n", option);
-        return -1;
+        return IPC_EINVAL;
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 static void app_config_print_help(const char *program)
@@ -121,7 +123,7 @@ void AppConfig_SetDefault(AppConfig *config)
 int AppConfig_ParseArgs(AppConfig *config, int argc, char **argv)
 {
     if (config == NULL) {
-        return -1;
+        return IPC_EINVAL;
     }
 
     for (int i = 1; i < argc; ++i) {
@@ -129,56 +131,56 @@ int AppConfig_ParseArgs(AppConfig *config, int argc, char **argv)
 
         if (strcmp(arg, "--help") == 0) {
             app_config_print_help(argv[0]);
-            return 1;  
+            return IPC_EOF;
         } else if (strcmp(arg, "--device") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0) {
-                return -1;
+            if (app_config_require_value(i, argc, arg) != IPC_OK) {
+                return IPC_EINVAL;
             }
             app_config_copy_string(config->device_path,
                                    sizeof(config->device_path),
                                    argv[++i]);
         } else if (strcmp(arg, "--width") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0 ||
-                app_config_parse_int(argv[++i], &config->width) < 0 ||
+            if (app_config_require_value(i, argc, arg) != IPC_OK ||
+                app_config_parse_int(argv[++i], &config->width) != IPC_OK ||
                 config->width <= 0) {
                 fprintf(stderr, "invalid --width\n");
-                return -1;
+                return IPC_EINVAL;
             }
         } else if (strcmp(arg, "--height") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0 ||
-                app_config_parse_int(argv[++i], &config->height) < 0 ||
+            if (app_config_require_value(i, argc, arg) != IPC_OK ||
+                app_config_parse_int(argv[++i], &config->height) != IPC_OK ||
                 config->height <= 0) {
                 fprintf(stderr, "invalid --height\n");
-                return -1;
+                return IPC_EINVAL;
             }
         } else if (strcmp(arg, "--fps") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0 ||
-                app_config_parse_int(argv[++i], &config->fps) < 0 ||
+            if (app_config_require_value(i, argc, arg) != IPC_OK ||
+                app_config_parse_int(argv[++i], &config->fps) != IPC_OK ||
                 config->fps <= 0) {
                 fprintf(stderr, "invalid --fps\n");
-                return -1;
+                return IPC_EINVAL;
             }
         } else if (strcmp(arg, "--preview") == 0) {
             config->enable_preview = 1;
         } else if (strcmp(arg, "--record") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0) {
-                return -1;
+            if (app_config_require_value(i, argc, arg) != IPC_OK) {
+                return IPC_EINVAL;
             }
             config->enable_record = 1;
             app_config_copy_string(config->output_path,
                                    sizeof(config->output_path),
                                    argv[++i]);
         } else if (strcmp(arg, "--rtsp") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0) {
-                return -1;
+            if (app_config_require_value(i, argc, arg) != IPC_OK) {
+                return IPC_EINVAL;
             }
             config->enable_rtsp = 1;
             app_config_copy_string(config->rtsp_url,
                                    sizeof(config->rtsp_url),
                                    argv[++i]);
         } else if (strcmp(arg, "--processor") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0) {
-                return -1;
+            if (app_config_require_value(i, argc, arg) != IPC_OK) {
+                return IPC_EINVAL;
             }
             config->enable_processor = 1;
             app_config_copy_string(config->processor_name,
@@ -187,19 +189,19 @@ int AppConfig_ParseArgs(AppConfig *config, int argc, char **argv)
         } else if (strcmp(arg, "--no-processor") == 0) {
             config->enable_processor = 0;
         } else if (strcmp(arg, "--frames") == 0) {
-            if (app_config_require_value(i, argc, arg) < 0 ||
-                app_config_parse_int(argv[++i], &config->max_frames) < 0) {
+            if (app_config_require_value(i, argc, arg) != IPC_OK ||
+                app_config_parse_int(argv[++i], &config->max_frames) != IPC_OK) {
                 fprintf(stderr, "invalid --frames\n");
-                return -1;
+                return IPC_EINVAL;
             }
         } else {
             fprintf(stderr, "unknown option: %s\n", arg);
             app_config_print_help(argv[0]);
-            return -1;
+            return IPC_EINVAL;
         }
     }
 
-    return 0;
+    return IPC_OK;
 }
 
 void AppConfig_Print(const AppConfig *config)

@@ -1,6 +1,7 @@
 #ifndef IPC_RECORDER_CAPTURE_MANAGER_H
 #define IPC_RECORDER_CAPTURE_MANAGER_H
 
+#include "../core/ipc_error.h"
 #include "../core/media_frame.h"
 
 typedef struct CaptureManager CaptureManager;

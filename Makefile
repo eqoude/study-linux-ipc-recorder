@@ -41,6 +41,11 @@ SRCS := \
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
 TARGET_PATH := $(BIN_DIR)/$(TARGET)
+TEST_BIN_DIR := $(BUILD_DIR)/tests
+ERROR_TESTS := \
+    $(TEST_BIN_DIR)/test_ipc_error \
+    $(TEST_BIN_DIR)/test_media_packet \
+    $(TEST_BIN_DIR)/test_thread_queue
 
 all: $(TARGET_PATH)
 
@@ -55,10 +60,25 @@ $(BUILD_DIR)/%.o: %.c
 run: all
 	./$(TARGET_PATH) --help
 
+$(TEST_BIN_DIR)/test_ipc_error: tests/test_ipc_error.c core/ipc_error.c core/ipc_error.h
+	@mkdir -p $(TEST_BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ tests/test_ipc_error.c core/ipc_error.c
+
+$(TEST_BIN_DIR)/test_media_packet: tests/test_media_packet.c core/media_packet.c core/media_packet.h core/ipc_error.c core/ipc_error.h
+	@mkdir -p $(TEST_BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ tests/test_media_packet.c core/media_packet.c core/ipc_error.c $(FFMPEG_LIBS)
+
+$(TEST_BIN_DIR)/test_thread_queue: tests/test_thread_queue.c core/thread_queue.c core/thread_queue.h core/media_packet.c core/media_packet.h core/ipc_error.c core/ipc_error.h
+	@mkdir -p $(TEST_BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ tests/test_thread_queue.c core/thread_queue.c core/media_packet.c core/ipc_error.c $(FFMPEG_LIBS) $(LDFLAGS)
+
+test-error: $(ERROR_TESTS)
+	sh tests/run_error_tests.sh $(TEST_BIN_DIR)
+
 clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)
 
 distclean: clean
 	rm -rf $(OUTPUT_DIR)
 
-.PHONY: all run clean distclean
+.PHONY: all run test-error clean distclean
