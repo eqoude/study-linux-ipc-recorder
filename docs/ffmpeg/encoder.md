@@ -202,7 +202,9 @@ MediaPacket.keyframe
 
 ### SPS / PPS
 
-H264 解码需要 SPS/PPS。
+H264 解码必须依赖 SPS/PPS。
+
+SPS 描述视频序列级参数，例如 profile、level、分辨率等。PPS 描述图像参数集，例如熵编码模式、slice 相关参数等。解码器只有拿到 SPS/PPS 后，才能正确解析后续 H264 slice。
 
 缺少 SPS/PPS 时，ffplay 可能报：
 
@@ -212,7 +214,95 @@ decode_slice_header error
 no frame!
 ```
 
-### extradata
+启动解码必须满足：
+
+```text
+SPS + PPS + IDR
+```
+
+不能只发送：
+
+```text
+SPS + PPS + P-frame
+```
+
+原因是 P 帧依赖之前的参考帧。新接入的 RTSP 客户端没有历史参考帧，无法直接从 P 帧开始解码。
+
+### SPS/PPS 的三种常见处理方式
+
+#### 方式一：全局头 extradata
+
+编码器打开后，SPS/PPS 保存在 `AVCodecContext.extradata` 中。MP4 muxer 会把它写入 `AVStream.codecpar->extradata`，播放器从 MP4 文件头读取 SPS/PPS。
+
+MP4 录像推荐使用全局头：
+
+```text
+AV_CODEC_FLAG_GLOBAL_HEADER
+↓
+AVCodecContext.extradata
+↓
+AVStream.codecpar->extradata
+↓
+MP4 moov / avcC
+```
+
+MP4 场景不依赖每个 IDR 前重复 SPS/PPS。全局头写入文件头后，播放器可以在解析 MP4 metadata 时拿到 codec 参数。
+
+#### 方式二：关键帧附近重复 SPS/PPS
+
+当前工程使用：
+
+```text
+x264-params = repeat-headers=1
+```
+
+作用是让编码器在 IDR 关键帧附近重复输出 SPS/PPS。RTSP 客户端中途加入时，等待下一个 `SPS + PPS + IDR` 后即可开始解码。
+
+当前工程同时设置：
+
+```text
+preset = ultrafast
+tune = zerolatency
+repeat-headers = 1
+max_b_frames = 0
+```
+
+作用：
+
+- `preset = ultrafast`：降低编码计算量。
+- `tune = zerolatency`：降低实时编码延迟。
+- `max_b_frames = 0`：关闭 B 帧，减少重排序。
+- `repeat-headers = 1`：关键帧附近重复 SPS/PPS，提高 VLC / ffplay 等客户端中途接入成功率。
+
+重复 SPS/PPS 会带来少量码流冗余，但数据量很小，当前初版 RTSP 推流可以接受。
+
+#### 方式三：RTSP SDP / 客户端连接时发送 SPS/PPS
+
+后续可增强为：
+
+```text
+encoder extradata
+↓
+解析 SPS/PPS
+↓
+写入 RTSP SDP 的 sprop-parameter-sets
+↓
+客户端等待 IDR
+↓
+开始解码
+```
+
+也可以在客户端新连接时，先单独发送 SPS/PPS，再等待并发送下一个 IDR。
+
+关键约束仍然是：
+
+```text
+SPS + PPS + IDR
+```
+
+只给新客户端发送 `SPS + PPS + P-frame` 不能启动解码。
+
+### 当前工程结论
 
 encoder 打开后从 `AVCodecContext.extradata` 复制一份稳定 SPS/PPS 到 encoder 私有上下文。
 
@@ -225,9 +315,20 @@ packet.extradata_size = encoder_private_extradata_size
 
 注意：
 
-- `MediaPacket.data` 是 deep copy
-- `MediaPacket.extradata` 是 encoder 内部稳定只读引用
-- muxer 使用时必须 copy 到自己的 `codecpar->extradata`
+- `AVCodecContext.extradata` 用于 MP4 muxer 写入 `codecpar->extradata`。
+- `AVCodecContext.extradata` 也为后续 RTSP SDP 管理 SPS/PPS 预留。
+- `repeat-headers=1` 用于初版 RTSP 推流，让 IDR 附近重复携带 SPS/PPS。
+- `MediaPacket.data` 是 deep copy。
+- `MediaPacket.extradata` 是 encoder 内部稳定只读引用。
+- muxer 使用 extradata 时必须 copy 到自己的 `codecpar->extradata`。
+
+当前实现优先目标：
+
+```text
+先保证 MP4 可播放
+再保证 RTSP 初版容易解码
+后续再优化为 SDP 管理 SPS/PPS
+```
 
 ## 9. flush 是什么
 
@@ -259,10 +360,22 @@ max_b_frames = 0
 
 作用：
 
-- 减少编码延迟
-- 避免 B 帧增加重排序复杂度
-- 关键帧附近重复 SPS/PPS，帮助 RTSP client 解码
-- 配合 RTSP muxer 在写 header 前复制 extradata 到 SDP
+- `preset = ultrafast` 降低编码耗时，适合实时预览和推流。
+- `tune = zerolatency` 减少编码器内部缓存。
+- `max_b_frames = 0` 关闭 B 帧，避免未来参考帧带来的重排序延迟。
+- `repeat-headers = 1` 在 IDR 关键帧附近重复 SPS/PPS，帮助 RTSP client 中途接入后解码。
+
+当前 RTSP 初版方案依赖两条路径：
+
+```text
+extradata
+  -> 为 RTSP SDP / header 处理提供 SPS/PPS 来源
+
+repeat-headers=1
+  -> 让关键帧附近在码流中重复携带 SPS/PPS
+```
+
+这不是最终最精细的 RTSP 管理方式，但符合当前工程阶段：先保证 VLC / ffplay 能稳定解码，再把 SPS/PPS 管理收敛到 SDP 和客户端连接流程。
 
 ## 11. 当前未完善点
 
@@ -270,3 +383,4 @@ max_b_frames = 0
 - 没有音频编码
 - 没有动态码率调整
 - 没有完整 encoder 性能统计
+- RTSP SPS/PPS 还没有完整收敛为 SDP 驱动的连接管理

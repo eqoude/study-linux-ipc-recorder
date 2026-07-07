@@ -12,15 +12,15 @@
 extern const CaptureOps g_fake_capture_ops;
 extern const ConverterOps g_fake_converter_ops;
 extern const EncoderOps g_fake_encoder_ops;
-extern const FrameProcessorOps g_osd_processor_ops;
 extern const MuxerOps g_fake_muxer_ops;
-extern const MuxerOps g_rtsp_muxer_ops;
-extern const ViewerOps g_sdl_display_ops;
 
 extern const CaptureOps g_v4l2_capture_ops;
 extern const ConverterOps g_yuyv_to_yuv420_ops;
 extern const EncoderOps g_h264_ffmpeg_encoder_ops;
+extern const FrameProcessorOps g_osd_processor_ops;
 extern const MuxerOps g_mp4_muxer_ops;
+extern const MuxerOps g_rtsp_muxer_ops;
+extern const ViewerOps g_sdl_display_ops;
 
 static int module_register_check(const char *module_name, int ret)
 {

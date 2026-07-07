@@ -56,8 +56,7 @@ int MuxerManager_Init(MuxerManager *manager,
     const MuxerOps *ops;
 
     if (manager == NULL || config == NULL || muxer_validate_name(muxer_name) < 0 ||
-        config->output_path == NULL || config->output_path[0] == '\0' ||
-        config->format_name == NULL || config->format_name[0] == '\0') {
+        config->output_path[0] == '\0' || config->format_name[0] == '\0') {
         return IPC_EINVAL;
     }
 

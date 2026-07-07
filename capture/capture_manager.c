@@ -56,8 +56,7 @@ int CaptureManager_Init(CaptureManager *manager,
     const CaptureOps *ops;
 
     if (manager == NULL || capture_validate_name(capture_name) < 0 ||
-        config == NULL || config->device_path == NULL ||
-        config->device_path[0] == '\0' || config->width <= 0 ||
+        config == NULL || config->device_path[0] == '\0' || config->width <= 0 ||
         config->height <= 0 || config->fps <= 0) {
         return IPC_EINVAL;
     }
@@ -71,11 +70,6 @@ int CaptureManager_Init(CaptureManager *manager,
     manager->ops = ops;
     strncpy(manager->capture_name, capture_name, sizeof(manager->capture_name) - 1U);
     manager->config = *config;
-    strncpy(manager->device_path, config->device_path, sizeof(manager->device_path) - 1U);
-    manager->width = config->width;
-    manager->height = config->height;
-    manager->pixel_format = config->pixel_format;
-    manager->fps = config->fps;
     manager->state = CAPTURE_STATE_IDLE;
 
     if (manager->ops->init != NULL) {

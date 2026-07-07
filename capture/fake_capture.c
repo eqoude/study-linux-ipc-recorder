@@ -58,16 +58,16 @@ static int fake_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
 
     printf("[fake_capture] get_frame\n");
 
-    frame->width = 640;
-    frame->height = 480;
-    frame->pixfmt = PIX_FMT_YUYV422;
+    frame->width = manager->config.width;
+    frame->height = manager->config.height;
+    frame->pixfmt = manager->config.pixel_format;
     frame->data[0] = NULL;
     frame->data[1] = NULL;
     frame->data[2] = NULL;
     frame->linesize[0] = 0;
     frame->linesize[1] = 0;
     frame->linesize[2] = 0;
-    frame->size = 640 * 480 * 2;
+    frame->size = manager->config.width * manager->config.height * 2;
     frame->pts = 0;
 
     return IPC_OK;

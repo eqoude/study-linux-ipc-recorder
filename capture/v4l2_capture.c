@@ -25,7 +25,30 @@ typedef struct {
     V4L2CaptureBuffer *buffers;
     unsigned int buffer_count;
     int64_t frame_index;
+    int width;
+    int height;
+    PixelFormat pixel_format;
+    unsigned int v4l2_pixelformat;
 } V4L2CaptureContext;
+
+static unsigned int PixelFormat_ToV4L2(PixelFormat fmt)
+{
+    switch (fmt) {
+    case PIX_FMT_YUYV422:
+        return V4L2_PIX_FMT_YUYV;
+    default:
+        return 0;
+    }
+}
+
+static void v4l2_format_to_string(unsigned int pixelformat, char text[5])
+{
+    text[0] = (char)(pixelformat & 0xFFU);
+    text[1] = (char)((pixelformat >> 8) & 0xFFU);
+    text[2] = (char)((pixelformat >> 16) & 0xFFU);
+    text[3] = (char)((pixelformat >> 24) & 0xFFU);
+    text[4] = '\0';
+}
 
 static int v4l2_ioctl(int fd, unsigned long request, void *arg)
 {
@@ -62,13 +85,18 @@ static int v4l2_capture_queue_buffer(V4L2CaptureContext *ctx, unsigned int index
 static int v4l2_capture_init(CaptureManager *manager)
 {
     V4L2CaptureContext *ctx;
+    unsigned int v4l2_pixfmt;
 
-    if (manager == NULL || manager->width <= 0 || manager->height <= 0) {
+    if (manager == NULL || manager->config.width <= 0 || manager->config.height <= 0) {
         return IPC_EINVAL;
     }
 
-    if (manager->pixel_format != PIX_FMT_YUYV422) {
-        return IPC_EUNSUPPORTED;
+    v4l2_pixfmt = PixelFormat_ToV4L2(manager->config.pixel_format);
+    if (v4l2_pixfmt == 0) {
+        fprintf(stderr,
+                "[v4l2] unsupported pixel format config: %d\n",
+                manager->config.pixel_format);
+        return IPC_EINVAL;
     }
 
     ctx = (V4L2CaptureContext *)calloc(1, sizeof(*ctx));
@@ -77,6 +105,10 @@ static int v4l2_capture_init(CaptureManager *manager)
     }
 
     ctx->fd = -1;
+    ctx->width = manager->config.width;
+    ctx->height = manager->config.height;
+    ctx->pixel_format = manager->config.pixel_format;
+    ctx->v4l2_pixelformat = v4l2_pixfmt;
     manager->priv = ctx;
     printf("[v4l2] init\n");
 
@@ -115,6 +147,8 @@ static int v4l2_capture_open(CaptureManager *manager)
     V4L2CaptureContext *ctx;
     struct v4l2_format format;
     struct v4l2_requestbuffers request;
+    char requested_fourcc[5];
+    char actual_fourcc[5];
 
     if (manager == NULL) {
         return IPC_EINVAL;
@@ -124,7 +158,7 @@ static int v4l2_capture_open(CaptureManager *manager)
     }
 
     ctx = (V4L2CaptureContext *)manager->priv;
-    ctx->fd = open(manager->device_path, O_RDWR);
+    ctx->fd = open(manager->config.device_path, O_RDWR);
     if (ctx->fd < 0) {
         perror("[v4l2] open");
         return IPC_EOPEN;
@@ -132,9 +166,9 @@ static int v4l2_capture_open(CaptureManager *manager)
 
     memset(&format, 0, sizeof(format));
     format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    format.fmt.pix.width = (unsigned int)manager->width;
-    format.fmt.pix.height = (unsigned int)manager->height;
-    format.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+    format.fmt.pix.width = (unsigned int)manager->config.width;
+    format.fmt.pix.height = (unsigned int)manager->config.height;
+    format.fmt.pix.pixelformat = ctx->v4l2_pixelformat;
     format.fmt.pix.field = V4L2_FIELD_NONE;
 
     if (v4l2_ioctl(ctx->fd, VIDIOC_S_FMT, &format) < 0) {
@@ -142,10 +176,29 @@ static int v4l2_capture_open(CaptureManager *manager)
         return IPC_EIO;
     }
 
-    if (format.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
-        fprintf(stderr, "[v4l2] unsupported pixel format\n");
-        return IPC_EUNSUPPORTED;
+    v4l2_format_to_string(ctx->v4l2_pixelformat, requested_fourcc);
+    v4l2_format_to_string(format.fmt.pix.pixelformat, actual_fourcc);
+
+    printf("[v4l2] requested format: width=%d height=%d pixelformat=%s\n",
+           manager->config.width,
+           manager->config.height,
+           requested_fourcc);
+    printf("[v4l2] actual format: width=%u height=%u pixelformat=%s\n",
+           format.fmt.pix.width,
+           format.fmt.pix.height,
+           actual_fourcc);
+
+    if (format.fmt.pix.pixelformat != ctx->v4l2_pixelformat) {
+        fprintf(stderr,
+                "[v4l2] driver changed pixelformat: requested=%s actual=%s\n",
+                requested_fourcc,
+                actual_fourcc);
+        return IPC_EINVAL;
     }
+
+    ctx->width = (int)format.fmt.pix.width;
+    ctx->height = (int)format.fmt.pix.height;
+    ctx->v4l2_pixelformat = format.fmt.pix.pixelformat;
 
     memset(&request, 0, sizeof(request));
     request.count = V4L2_CAPTURE_BUFFER_COUNT;
@@ -197,7 +250,7 @@ static int v4l2_capture_open(CaptureManager *manager)
     }
 
     manager->state = CAPTURE_STATE_READY;
-    printf("[v4l2] open %s\n", manager->device_path);
+    printf("[v4l2] open %s\n", manager->config.device_path);
 
     return IPC_OK;
 }
@@ -305,11 +358,11 @@ static int v4l2_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
     }
 
     memset(frame, 0, sizeof(*frame));
-    frame->width = manager->width;
-    frame->height = manager->height;
-    frame->pixfmt = PIX_FMT_YUYV422;
+    frame->width = ctx->width;
+    frame->height = ctx->height;
+    frame->pixfmt = ctx->pixel_format;
     frame->data[0] = (unsigned char *)ctx->buffers[buffer.index].start;
-    frame->linesize[0] = manager->width * 2;
+    frame->linesize[0] = ctx->width * 2;
     frame->size = (int)buffer.bytesused;
     frame->pts = ctx->frame_index++;
 

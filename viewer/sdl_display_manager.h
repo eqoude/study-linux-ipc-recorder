@@ -10,7 +10,7 @@ typedef struct ViewerOps ViewerOps;
 typedef struct {
     int width;
     int height;
-    const char *title;
+    char title[128];
 } ViewerConfig;
 
 struct ViewerOps {

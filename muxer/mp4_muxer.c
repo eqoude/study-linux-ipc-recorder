@@ -77,8 +77,7 @@ static int mp4_muxer_init(MuxerManager *manager)
 {
     Mp4MuxerContext *ctx;
 
-    if (manager == NULL || manager->config.output_path == NULL ||
-        manager->config.output_path[0] == '\0' ||
+    if (manager == NULL || manager->config.output_path[0] == '\0' ||
         manager->config.width <= 0 || manager->config.height <= 0 ||
         manager->config.fps <= 0 || manager->config.codec != CODEC_H264) {
         return IPC_EINVAL;

@@ -2,12 +2,14 @@
 #define IPC_RECORDER_APP_CONFIG_H
 
 #include "ipc_error.h"
+#include "media_frame.h"
 
 typedef struct {
     char device_path[128];
 
     int width;
     int height;
+    PixelFormat pixel_format;
     int fps;
 
     int enable_preview;

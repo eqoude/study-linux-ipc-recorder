@@ -8,8 +8,8 @@ typedef struct MuxerManager MuxerManager;
 typedef struct MuxerOps MuxerOps;
 
 typedef struct {
-    const char *output_path;
-    const char *format_name;
+    char output_path[256];
+    char format_name[64];
     int width;
     int height;
     int fps;

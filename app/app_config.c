@@ -84,6 +84,7 @@ void AppConfig_SetDefault(AppConfig *config)
                            "/dev/video0");
     config->width = 640;
     config->height = 480;
+    config->pixel_format = PIX_FMT_YUYV422;
     config->fps = 30;
 
     config->enable_preview = 0;
@@ -214,6 +215,7 @@ void AppConfig_Print(const AppConfig *config)
     printf("  device_path      : %s\n", config->device_path);
     printf("  width            : %d\n", config->width);
     printf("  height           : %d\n", config->height);
+    printf("  pixel_format     : %d\n", config->pixel_format);
     printf("  fps              : %d\n", config->fps);
     printf("  enable_preview   : %d\n", config->enable_preview);
     printf("  enable_record    : %d\n", config->enable_record);

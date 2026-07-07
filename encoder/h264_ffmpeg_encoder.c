@@ -196,10 +196,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
     if (ctx->codec_ctx->priv_data != NULL) {
         (void)av_opt_set(ctx->codec_ctx->priv_data, "preset", "ultrafast", 0);
         (void)av_opt_set(ctx->codec_ctx->priv_data, "tune", "zerolatency", 0);
-        (void)av_opt_set(ctx->codec_ctx->priv_data,
-                         "x264-params",
-                         "repeat-headers=1",
-                         0);
+        (void)av_opt_set(ctx->codec_ctx->priv_data, "x264-params", "repeat-headers=1", 0);
     }
 
     if (avcodec_open2(ctx->codec_ctx, codec, NULL) < 0) {

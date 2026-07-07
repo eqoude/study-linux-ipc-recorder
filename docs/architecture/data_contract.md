@@ -369,3 +369,49 @@ MediaPacket_CopyFromAVPacket()
 - 保存 `codec`
 
 这样 muxer 不依赖 encoder 内部 `AVPacket` 生命周期。
+
+## 12. Config 数据契约
+
+每个 Manager 只应该有一个配置来源：
+
+```text
+manager->config
+```
+
+不要在 Manager 中同时保存：
+
+```text
+manager->config.width
+manager->width
+```
+
+这种 duplicate source of truth 会导致后续维护时出现两个字段不一致。
+
+当前规则：
+
+- `AppConfig` 是应用层运行时配置来源。
+- `AppPipeline` 根据 `AppConfig` 构造各模块 `XxxConfig`。
+- `XxxManager_Init()` 中执行 `manager->config = *config`。
+- 插件后续读取配置时统一使用 `manager->config.xxx`。
+
+例如 capture：
+
+```text
+AppConfig.pixel_format
+  -> CaptureConfig.pixel_format
+  -> CaptureManager.config.pixel_format
+  -> v4l2_capture.c 使用 manager->config.pixel_format
+```
+
+`PIX_FMT_YUYV422` 只是默认值，由 `AppConfig_SetDefault()` 设置，不应该在 `AppPipeline` 中写死。
+
+字符串配置字段使用 char 数组保存，例如：
+
+```text
+CaptureConfig.device_path
+MuxerConfig.output_path
+MuxerConfig.format_name
+ViewerConfig.title
+```
+
+这样结构体整体赋值时会复制字符串内容，不依赖外部指针生命周期，也避免悬空指针。

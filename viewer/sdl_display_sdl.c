@@ -205,7 +205,7 @@ static int sdl_display_init(void *manager)
     ctx->width = viewer->config.width > 0 ? viewer->config.width : 640;
     ctx->height = viewer->config.height > 0 ? viewer->config.height : 480;
     snprintf(ctx->title, sizeof(ctx->title), "%s",
-             viewer->config.title != NULL ? viewer->config.title : "IPC Preview");
+             viewer->config.title[0] != '\0' ? viewer->config.title : "IPC Preview");
 
     ctx->mutex = SDL_CreateMutex();
     if (ctx->mutex == NULL) {

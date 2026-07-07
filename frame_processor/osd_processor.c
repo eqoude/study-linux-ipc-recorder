@@ -3,24 +3,77 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 typedef struct {
     unsigned char *buffer;
     int buffer_size;
 } OsdProcessorContext;
 
-static void osd_draw_rect_yuv420(MediaFrame *frame,
-                                 int x,
-                                 int y,
-                                 int width,
-                                 int height)
+#define OSD_TEXT_X 10
+#define OSD_TEXT_Y 10
+#define OSD_BG_X 8
+#define OSD_BG_Y 8
+#define OSD_FONT_WIDTH 5
+#define OSD_FONT_HEIGHT 7
+#define OSD_FONT_SCALE 2
+#define OSD_CHAR_SPACING 1
+#define OSD_BG_PADDING 2
+#define OSD_Y_WHITE 235
+#define OSD_Y_BLACK 16
+
+static const uint8_t *osd_get_font(char ch)
+{
+    static const uint8_t font_digit[10][OSD_FONT_HEIGHT] = {
+        {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E},
+        {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E},
+        {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F},
+        {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E},
+        {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02},
+        {0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E},
+        {0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E},
+        {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08},
+        {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E},
+        {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E},
+    };
+    static const uint8_t font_dash[OSD_FONT_HEIGHT] = {
+        0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00,
+    };
+    static const uint8_t font_colon[OSD_FONT_HEIGHT] = {
+        0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00,
+    };
+    static const uint8_t font_space[OSD_FONT_HEIGHT] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    if (ch >= '0' && ch <= '9') {
+        return font_digit[ch - '0'];
+    }
+    if (ch == '-') {
+        return font_dash;
+    }
+    if (ch == ':') {
+        return font_colon;
+    }
+    if (ch == ' ') {
+        return font_space;
+    }
+
+    return font_space;
+}
+
+static void draw_rect_y(MediaFrame *frame,
+                        int x,
+                        int y,
+                        int width,
+                        int height,
+                        uint8_t value)
 {
     int end_x;
     int end_y;
 
-    if (frame == NULL || frame->pixfmt != PIX_FMT_YUV420P ||
-        frame->data[0] == NULL || frame->data[1] == NULL ||
-        frame->data[2] == NULL) {
+    if (frame == NULL || frame->data[0] == NULL ||
+        frame->linesize[0] < frame->width) {
         return;
     }
 
@@ -44,21 +97,88 @@ static void osd_draw_rect_yuv420(MediaFrame *frame,
     }
 
     for (int row = y; row < end_y; ++row) {
-        unsigned char *dst_y = frame->data[0] + row * frame->linesize[0];
+        uint8_t *dst_y = frame->data[0] + row * frame->linesize[0];
         for (int col = x; col < end_x; ++col) {
-            dst_y[col] = 235;
+            dst_y[col] = value;
         }
     }
+}
 
-    for (int row = y / 2; row < (end_y + 1) / 2; ++row) {
-        unsigned char *dst_u = frame->data[1] + row * frame->linesize[1];
-        unsigned char *dst_v = frame->data[2] + row * frame->linesize[2];
+static void draw_char_y(MediaFrame *frame, int x, int y, char ch, uint8_t value)
+{
+    const uint8_t *bitmap = osd_get_font(ch);
 
-        for (int col = x / 2; col < (end_x + 1) / 2; ++col) {
-            dst_u[col] = 128;
-            dst_v[col] = 128;
+    for (int row = 0; row < OSD_FONT_HEIGHT; ++row) {
+        for (int col = 0; col < OSD_FONT_WIDTH; ++col) {
+            if ((bitmap[row] & (uint8_t)(1U << (OSD_FONT_WIDTH - 1 - col))) == 0) {
+                continue;
+            }
+
+            draw_rect_y(frame,
+                        x + col * OSD_FONT_SCALE,
+                        y + row * OSD_FONT_SCALE,
+                        OSD_FONT_SCALE,
+                        OSD_FONT_SCALE,
+                        value);
         }
     }
+}
+
+static void draw_text_y(MediaFrame *frame, int x, int y, const char *text, uint8_t value)
+{
+    int cursor_x = x;
+    int step = OSD_FONT_WIDTH * OSD_FONT_SCALE + OSD_CHAR_SPACING;
+
+    if (text == NULL) {
+        return;
+    }
+
+    for (int i = 0; text[i] != '\0'; ++i) {
+        draw_char_y(frame, cursor_x, y, text[i], value);
+        cursor_x += step;
+    }
+}
+
+static int overlay_datetime(MediaFrame *frame)
+{
+    char time_text[32];
+    time_t now;
+    struct tm tm_now;
+    size_t text_len;
+    int text_width;
+    int text_height;
+
+    if (frame == NULL || frame->pixfmt != PIX_FMT_YUV420P ||
+        frame->data[0] == NULL || frame->linesize[0] < frame->width) {
+        return IPC_EINVAL;
+    }
+
+    now = time(NULL);
+    if (localtime_r(&now, &tm_now) == NULL) {
+        return IPC_ERROR;
+    }
+    if (strftime(time_text,
+                 sizeof(time_text),
+                 "%Y-%m-%d %H:%M:%S",
+                 &tm_now) == 0) {
+        return IPC_ERROR;
+    }
+
+    text_len = strlen(time_text);
+    text_width = (int)text_len * (OSD_FONT_WIDTH * OSD_FONT_SCALE +
+                                  OSD_CHAR_SPACING) -
+                 OSD_CHAR_SPACING;
+    text_height = OSD_FONT_HEIGHT * OSD_FONT_SCALE;
+
+    draw_rect_y(frame,
+                OSD_BG_X,
+                OSD_BG_Y,
+                text_width + OSD_BG_PADDING * 2,
+                text_height + OSD_BG_PADDING * 2,
+                OSD_Y_BLACK);
+    draw_text_y(frame, OSD_TEXT_X, OSD_TEXT_Y, time_text, OSD_Y_WHITE);
+
+    return IPC_OK;
 }
 
 static int osd_processor_init(void *manager)
@@ -117,6 +237,7 @@ static int osd_processor_process(void *manager,
     int width;
     int height;
     int size;
+    int ret;
 
     if (processor == NULL || in == NULL || out == NULL) {
         return IPC_EINVAL;
@@ -179,11 +300,10 @@ static int osd_processor_process(void *manager,
     out->size = size;
     out->pts = in->pts;
 
-    osd_draw_rect_yuv420(out,
-                         processor->config.x,
-                         processor->config.y,
-                         processor->config.width,
-                         processor->config.height);
+    ret = overlay_datetime(out);
+    if (ret != IPC_OK) {
+        return ret;
+    }
 
     printf("[osd_processor] process\n");
     return IPC_OK;

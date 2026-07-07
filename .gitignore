@@ -25,6 +25,18 @@ output/*.log
 core
 core.*
 
+# doc
+docs/architecture/
+docs/capture/
+docs/converter/
+docs/ffmpeg/
+docs/linux/
+docs/modules/
+docs/processor/
+docs/project/
+docs/viewer/
+docs/ffmpeg/
+
 # Temporary files
 *.tmp
 *.bak

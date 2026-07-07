@@ -15,7 +15,7 @@ typedef enum {
 } CaptureState;
 
 typedef struct {
-    const char *device_path;
+    char device_path[128];
     int width;
     int height;
     PixelFormat pixel_format;
@@ -40,11 +40,6 @@ struct CaptureManager {
 
     char capture_name[64];
     CaptureConfig config;
-    char device_path[128];
-    int width;
-    int height;
-    PixelFormat pixel_format;
-    int fps;
     CaptureState state;
 };
 

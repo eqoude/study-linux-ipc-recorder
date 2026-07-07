@@ -67,14 +67,16 @@ g_osd_processor_ops
 name = "osd"
 ```
 
-当前功能是初步 OSD：
+当前功能是时间水印 OSD：
 
 - 分配内部 YUV420P buffer
 - copy 输入 frame 到内部 buffer
-- 在指定区域绘制简单白色矩形
+- 在左上角叠加系统本地时间水印
+- 时间格式为 `YYYY-MM-DD HH:MM:SS`
+- 只修改 Y plane，白色文字使用 `Y=235`，黑色背景使用 `Y=16`
 - 输出 processed frame
 
-它不是完整文字渲染系统，没有字体库。
+processor 当前负责在 YUV420P 画面左上角叠加系统时间水印，用于 IPC 录像和 RTSP 预览中的时间标记。它使用内置 ASCII 点阵字体，不依赖 FreeType、SDL_ttf、OpenCV 或 FFmpeg swscale。
 
 ## 5. Manager 调用流程
 

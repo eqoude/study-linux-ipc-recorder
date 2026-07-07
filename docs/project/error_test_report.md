@@ -192,6 +192,14 @@ echo $?
 
 当前错误码机制已经覆盖核心业务模块和 app 层，适合继续作为工程原型迭代基础。
 
+本轮配置设计修复后：
+
+- `AppConfig` 增加 `pixel_format`，默认值为 `PIX_FMT_YUYV422`。
+- `AppPipeline` 构造 `CaptureConfig` 时使用 `pipeline->config.pixel_format`，不再写死 capture 像素格式。
+- `CaptureManager` 删除重复的 `device_path / width / height / pixel_format / fps` 字段，只保留 `CaptureConfig config`。
+- `CaptureConfig / MuxerConfig / ViewerConfig` 中的字符串字段使用 char 数组，避免保存外部裸指针。
+- 插件读取配置时统一通过 `manager->config.xxx`。
+
 项目定位仍然是：
 
 ```text

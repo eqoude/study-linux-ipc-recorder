@@ -390,13 +390,16 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
         return ret;
     }
 
-    CaptureConfig capture_config = {
-        .device_path = pipeline->config.device_path,
-        .width = pipeline->config.width,
-        .height = pipeline->config.height,
-        .pixel_format = PIX_FMT_YUYV422,
-        .fps = pipeline->config.fps,
-    };
+    CaptureConfig capture_config;
+
+    memset(&capture_config, 0, sizeof(capture_config));
+    strncpy(capture_config.device_path,
+            pipeline->config.device_path,
+            sizeof(capture_config.device_path) - 1U);
+    capture_config.width = pipeline->config.width;
+    capture_config.height = pipeline->config.height;
+    capture_config.pixel_format = pipeline->config.pixel_format;
+    capture_config.fps = pipeline->config.fps;
 
     ret = CaptureManager_Init(&pipeline->capture,
                               pipeline->config.capture_name,
@@ -410,7 +413,7 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     ConverterConfig converter_config = {
         .src_width = pipeline->config.width,
         .src_height = pipeline->config.height,
-        .src_format = PIX_FMT_YUYV422,
+        .src_format = pipeline->config.pixel_format,
         .dst_width = pipeline->config.width,
         .dst_height = pipeline->config.height,
         .dst_format = PIX_FMT_YUV420P,
@@ -444,11 +447,12 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     }
 
     if (pipeline->config.enable_preview) {
-        ViewerConfig viewer_config = {
-            .width = pipeline->config.width,
-            .height = pipeline->config.height,
-            .title = "IPC Preview",
-        };
+        ViewerConfig viewer_config;
+
+        memset(&viewer_config, 0, sizeof(viewer_config));
+        viewer_config.width = pipeline->config.width;
+        viewer_config.height = pipeline->config.height;
+        strncpy(viewer_config.title, "IPC Preview", sizeof(viewer_config.title) - 1U);
 
         ret = ViewerManager_Init(&pipeline->viewer,
                                  pipeline->config.viewer_name,
@@ -481,14 +485,19 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     }
 
     if (pipeline->config.enable_record) {
-        MuxerConfig muxer_config = {
-            .output_path = pipeline->config.output_path,
-            .format_name = pipeline->config.muxer_name,
-            .width = pipeline->config.width,
-            .height = pipeline->config.height,
-            .fps = pipeline->config.fps,
-            .codec = CODEC_H264,
-        };
+        MuxerConfig muxer_config;
+
+        memset(&muxer_config, 0, sizeof(muxer_config));
+        strncpy(muxer_config.output_path,
+                pipeline->config.output_path,
+                sizeof(muxer_config.output_path) - 1U);
+        strncpy(muxer_config.format_name,
+                pipeline->config.muxer_name,
+                sizeof(muxer_config.format_name) - 1U);
+        muxer_config.width = pipeline->config.width;
+        muxer_config.height = pipeline->config.height;
+        muxer_config.fps = pipeline->config.fps;
+        muxer_config.codec = CODEC_H264;
 
         ret = MuxerManager_Init(&pipeline->muxer,
                                 pipeline->config.muxer_name,
@@ -501,14 +510,19 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     }
 
     if (pipeline->config.enable_rtsp) {
-        MuxerConfig rtsp_muxer_config = {
-            .output_path = pipeline->config.rtsp_url,
-            .format_name = "rtsp",
-            .width = pipeline->config.width,
-            .height = pipeline->config.height,
-            .fps = pipeline->config.fps,
-            .codec = CODEC_H264,
-        };
+        MuxerConfig rtsp_muxer_config;
+
+        memset(&rtsp_muxer_config, 0, sizeof(rtsp_muxer_config));
+        strncpy(rtsp_muxer_config.output_path,
+                pipeline->config.rtsp_url,
+                sizeof(rtsp_muxer_config.output_path) - 1U);
+        strncpy(rtsp_muxer_config.format_name,
+                "rtsp",
+                sizeof(rtsp_muxer_config.format_name) - 1U);
+        rtsp_muxer_config.width = pipeline->config.width;
+        rtsp_muxer_config.height = pipeline->config.height;
+        rtsp_muxer_config.fps = pipeline->config.fps;
+        rtsp_muxer_config.codec = CODEC_H264;
 
         ret = MuxerManager_Init(&pipeline->rtsp_muxer,
                                 "rtsp",
