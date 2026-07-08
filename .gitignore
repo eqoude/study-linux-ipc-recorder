@@ -36,6 +36,10 @@ docs/processor/
 docs/project/
 docs/viewer/
 docs/ffmpeg/
+docs/edge_ai_camera_env_setup.md
+
+# models
+models/
 
 # Temporary files
 *.tmp
