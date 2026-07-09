@@ -1,8 +1,0 @@
-{
-  "timestamp": 1783582271.4888556,
-  "person_visible": true,
-  "scene_summary": "A large fire burns in the center of the frame. The flames are bright orange and yellow, with some red and white smoke rising from the bottom. The fire appears to be spreading rapidly, with some areas ",
-  "risk_level": "low",
-  "should_alert": false,
-  "raw_answer": " [\n{\n    \"person_visible\": true,\n    \"scene_summary\": \"A large fire burns in the center of the frame. The flames are bright orange and yellow, with some red and white smoke rising from the bottom. The fire appears to be spreading rapidly, with some areas of the scene being engulfed in flames. There are no visible people or other objects in the scene.\",\n    \"risk_level\": \"low\"\n},\n{\n    \"person_visible\": true,\n    \"scene_summary\": \"A large fire burns in the center of the frame. The flames are bright orange and yellow, with some red and white smoke rising from the bottom. The fire appears to be spreading rapidly, with some areas of the scene being engulfed in flames. There are no visible people or other objects in the scene.\",\n    \"risk_level\": \"low\"\n}\n]"
-}

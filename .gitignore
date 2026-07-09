@@ -1,46 +1,126 @@
+# ============================================================
 # Build outputs
+# ============================================================
 build/
 bin/
 
-# Runtime outputs
-output/*.mp4
-output/*.h264
-output/*.264
-output/*.log
-
-# Editor / OS
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-
-# Object / binary files
 *.o
 *.a
 *.so
 *.out
 
-# Core dumps
-core
-core.*
 
-# doc
-docs/architecture/
-docs/capture/
-docs/converter/
-docs/ffmpeg/
-docs/linux/
-docs/modules/
-docs/processor/
-docs/project/
-docs/viewer/
-docs/ffmpeg/
-docs/edge_ai_camera_env_setup.md
+# ============================================================
+# Runtime outputs
+# ============================================================
+output/
+*.mp4
+*.h264
+*.264
+*.log
 
-# models
+# Runtime generated files
+edge_ai_camera_test/snapshot.jpg
+edge_ai_camera_test/event.json
+edge_ai_camera_test/*.tmp
+
+
+# ============================================================
+# Models / large assets
+# ============================================================
 models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
 
-# Temporary files
+
+# ============================================================
+# Python cache / environment
+# ============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+.env
+
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+
+
+# ============================================================
+# Conda / Hugging Face cache
+# ============================================================
+.cache/
+huggingface/
+hf_cache/
+
+
+# ============================================================
+# Documents
+#
+# Default: hide most internal docs.
+# Keep only public-facing entry documents.
+# ============================================================
+docs/*
+
+!docs/README.md
+
+!docs/project/
+docs/project/*
+!docs/project/system_overview.md
+!docs/project/build_and_run.md
+!docs/project/dependencies.md
+
+!docs/architecture/
+docs/architecture/*
+!docs/architecture/pipeline_overview.md
+
+!docs/modules/
+docs/modules/*
+!docs/modules/module_overview.md
+
+!docs/edge_ai/
+docs/edge_ai/*
+!docs/edge_ai/edge_ai_camera_design.md
+!docs/edge_ai/model_evaluation.md
+
+!docs/tests/
+docs/tests/*
+!docs/tests/test_plan.md
+
+
+# ============================================================
+# Editor / IDE / OS
+# ============================================================
+.vscode/
+.idea/
+
+*.swp
+*.swo
+*~
+
+.DS_Store
+Thumbs.db
+
+
+# ============================================================
+# Temporary / backup files
+# ============================================================
 *.tmp
 *.bak
+*.old
+*.orig
+
+
+# ============================================================
+# Core dumps
+# ============================================================
+core
+core.*

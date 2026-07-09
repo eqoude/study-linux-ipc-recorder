@@ -1,321 +1,129 @@
-# IPC Recorder 文档总入口
+# IPC Recorder / Edge AI Camera 文档中心
 
-## 1. 一句话简介
+本文档说明当前 `docs/` 的分类方式、推荐阅读顺序和文档导航。当前项目是 Linux IPC Recorder / Edge AI Camera 原型系统：C 主链路负责视频采集、转换、处理、编码、封装、预览和 snapshot 导出；Python AI 旁路读取 snapshot 并输出 `event.json`。
 
-IPC Recorder 是一个 Linux IPC Camera / Recorder 工程原型：从 V4L2 摄像头采集 YUYV422 图像，转换为 YUV420P，可选做 OSD 和 SDL 本地预览，再编码为 H264，最后保存为 MP4 或推送到外部 RTSP Server。
+## 1. 项目简介
 
-当前定位是 `engineering prototype`，不是量产级 IPC 系统。
-
-## 2. 当前能做什么
-
-- V4L2 mmap 方式采集 `/dev/videoX`
-- 纯 C 实现 `YUYV422 -> YUV420P`
-- 可选 `frame_processor/osd_processor.c` 做简单 OSD 矩形绘制
-- FFmpeg libavcodec H264 编码
-- FFmpeg libavformat MP4 封装
-- FFmpeg libavformat RTSP publisher 推流到外部 RTSP Server
-- SDL2 本地实时 Preview
-- Manager + Ops + Plugin Register 插件架构
-- AppConfig 命令行配置
-- AppPipeline 多线程 pipeline 编排
-- FrameQueue / PacketQueue 跨线程解耦
-
-## 3. 当前完整 pipeline
-
-主数据流：
+IPC Recorder 当前定位为工程原型：
 
 ```text
-V4L2 Camera
+V4L2 Capture
+  -> Converter(YUYV422 to YUV420P)
+  -> FrameProcessor/OSD
+  -> FrameSink(snapshot_jpeg)
+  -> H264 Encoder
+  -> Muxer(MP4/RTSP)
+```
+
+Edge AI 旁路：
+
+```text
+edge_ai_camera_test/snapshot.jpg
+  -> edge_ai_camera_test/ai_service.py
+  -> models/SmolVLM2-500M-Video-Instruct
+  -> edge_ai_camera_test/event.json
+```
+
+当前 `SmolVLM2-500M-Video-Instruct` 只用于验证本地 VLM 推理链路，不能作为可靠报警模型。
+
+## 2. 文档分类说明
+
+| 分类 | 说明 |
+|---|---|
+| `project/` | 项目总览、目录结构、编译运行、路线图和阅读指南 |
+| `architecture/` | pipeline、插件注册、数据契约、错误处理、线程队列等架构文档 |
+| `modules/` | Capture、Converter、FrameProcessor、Encoder、Muxer、FrameSink、Viewer 模块文档 |
+| `knowledge/` | V4L2、ioctl、像素格式、H264、FFmpeg、RTSP、SDL 等知识文档 |
+| `edge_ai/` | Edge AI Camera 旁路、环境配置、snapshot、AI service、模型评估 |
+| `tests/` | 测试计划、手动测试、稳定性测试和测试报告 |
+
+## 3. 推荐阅读顺序
+
+新读者建议按以下顺序阅读：
+
+```text
+project/system_overview.md
   ↓
-capture
-  ↓ MediaFrame(YUYV422)
-converter
-  ↓ MediaFrame(YUV420P)
-frame_processor(optional)
-  ↓ MediaFrame(YUV420P)
-encoder
-  ↓ MediaPacket(H264)
-muxer
-  ├── MP4: output/test.mp4
-  └── RTSP: rtsp://127.0.0.1:8554/live
+project/directory_structure.md
+  ↓
+project/build_and_run.md
+  ↓
+architecture/README.md
+  ↓
+architecture/pipeline_overview.md
+  ↓
+modules/module_overview.md
+  ↓
+edge_ai/edge_ai_camera_design.md
+  ↓
+tests/test_plan.md
 ```
 
-Preview 是 converter / processor 后面的显示旁路：
+如果目标是理解代码实现，建议继续阅读：
 
 ```text
-MediaFrame(YUV420P)
-  ├── viewer(SDL Preview)
-  └── encoder -> muxer
+architecture/plugin_register.md
+architecture/data_contract.md
+modules/sink.md
+knowledge/yuyv422_to_yuv420p.md
+knowledge/ffmpeg_encoder.md
+knowledge/ffmpeg_muxer.md
 ```
 
-线程化后的实际运行结构：
-
-```text
-capture_thread
-  ↓ FrameQueue(raw_queue)
-process_thread: converter + optional processor + optional viewer
-  ↓ FrameQueue(encode_queue)
-encode_thread
-  ↓ PacketQueue(packet_queue)
-mux_thread: MP4 / RTSP
-```
-
-## 4. 目录结构
-
-```text
-ipc_recorder/
-├── app/                 # main、命令行配置、AppPipeline 编排
-├── core/                # MediaFrame、MediaPacket、thread_queue
-├── capture/             # CaptureManager、fake_capture、v4l2_capture
-├── converter/           # ConverterManager、fake_converter、YUYV->YUV420P
-├── frame_processor/     # FrameProcessorManager、osd_processor
-├── encoder/             # EncoderManager、fake_encoder、H264 FFmpeg encoder
-├── muxer/               # MuxerManager、fake_muxer、MP4、RTSP
-├── viewer/              # ViewerManager、SDL preview
-├── modules/             # RegisterAllModules 插件注册入口
-├── docs/                # 工程文档
-├── build/               # 编译中间文件
-├── bin/                 # ipc_recorder 可执行文件
-├── output/              # MP4 输出目录
-└── Makefile
-```
-
-## 5. 如何编译
-
-依赖：
-
-- GCC
-- FFmpeg development package: `libavcodec libavformat libavutil`
-- SDL2 development package
-- pthread
-
-编译：
-
-```bash
-cd ipc_recorder
-make clean
-make
-```
-
-帮助：
-
-```bash
-./bin/ipc_recorder --help
-```
-
-## 6. 如何运行
-
-### 6.1 只录制 MP4
-
-```bash
-./bin/ipc_recorder --device /dev/video0 --record output/test.mp4
-```
-
-含义：
-
-- 开启 capture / converter / encoder / mp4_muxer
-- 不初始化 SDL viewer
-- 不初始化 RTSP muxer
-
-### 6.2 只 Preview
-
-```bash
-./bin/ipc_recorder --device /dev/video0 --preview
-```
-
-含义：
-
-- 开启 capture / converter / SDL viewer
-- 不进入 encoder / muxer
-- 关闭 SDL 窗口后 pipeline 请求停止
-
-### 6.3 RTSP 推流
-
-当前项目不是 RTSP Server，而是 RTSP Publisher。必须先启动外部 RTSP Server，例如 mediamtx。
-
-终端 1：
-
-```bash
-./mediamtx
-```
-
-终端 2：
-
-```bash
-./bin/ipc_recorder --device /dev/video0 --rtsp rtsp://127.0.0.1:8554/live
-```
-
-终端 3：
-
-```bash
-ffplay rtsp://127.0.0.1:8554/live
-```
-
-如果 UDP 播放异常：
-
-```bash
-ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/live
-```
-
-### 6.4 Preview + Record
-
-```bash
-./bin/ipc_recorder --device /dev/video0 --preview --record output/test.mp4
-```
-
-同一帧 YUV420P 会送给 SDL 显示，同时进入 encoder / MP4 muxer。
-
-### 6.5 Preview + Record + RTSP
-
-```bash
-./bin/ipc_recorder --device /dev/video0 \
-  --preview \
-  --record output/test.mp4 \
-  --rtsp rtsp://127.0.0.1:8554/live
-```
-
-## 7. 如何验证
-
-### 7.1 ffprobe 检查 MP4
-
-```bash
-ffprobe output/test.mp4
-```
-
-重点看：
-
-- `Duration`
-- `start`
-- `fps`
-- `tbr/tbn`
-
-当前 MP4 muxer 使用内部 `frame_index` 生成连续时间戳，目标是：
-
-```text
-start ≈ 0
-fps ≈ config.fps
-Duration ≈ written_frames / fps
-```
-
-### 7.2 ffmpeg 解码检查
-
-```bash
-ffmpeg -i output/test.mp4 -f null -
-```
-
-如果能正常解码到末尾，说明 MP4 封装和 H264 基本可用。
-
-### 7.3 ffplay 播放 MP4
-
-```bash
-ffplay output/test.mp4
-```
-
-### 7.4 ffplay 播放 RTSP
-
-```bash
-ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/live
-```
-
-### 7.5 错误码机制测试
-
-```bash
-make test-error
-```
-
-该目标会验证：
-
-- `IpcError_ToString()` 是否能输出可读错误信息
-- `MediaPacket` 是否按 `IPC_OK / IPC_EINVAL / IPC_ENOMEM` 返回
-- `FrameQueue / PacketQueue` 是否按 `IPC_OK / IPC_EOF / IPC_EINVAL` 返回
-- `AppPipeline` 错误日志是否包含错误字符串和错误码
-
-成功时输出：
-
-```text
-All error handling tests passed.
-```
-
-## 8. 统一错误码机制
-
-项目已引入统一错误码 `IpcResult`，定义在 `core/ipc_error.h`。
-
-核心语义：
-
-- `IPC_OK = 0`：成功
-- `IPC_EAGAIN = 1`：暂时无数据，不是严重错误
-- `IPC_EOF = 2`：正常结束，例如队列关闭、flush 完成、`--help` 或用户关闭预览窗口
-- 负数：真正错误，例如参数错误、IO 错误、编码错误、muxer 错误
-
-当前已迁移模块：
-
-- `core`
-- `capture`
-- `converter`
-- `encoder`
-- `muxer`
-- `viewer`
-- `frame_processor`
-- `module_register`
-- `app_config`
-- `app_pipeline`
-
-`AppPipeline` 处理规则：
-
-```text
-IPC_OK      -> 继续
-IPC_EAGAIN  -> 继续等待
-IPC_EOF     -> 正常退出
-ret < 0     -> 打印 IpcError_ToString(ret)，设置 error 并 stop
-```
-
-`main.c` 是 IPC 错误码到 shell 进程退出码的边界：
-
-- `--help` 返回 `IPC_EOF`，进程退出码为 `0`
-- 参数错误返回负数，进程退出码为 `1`
-- pipeline 错误返回进程退出码 `1`
-
-详细说明：
-
-```text
-docs/architecture/error_handling.md
-docs/project/error_test_report.md
-```
-
-该机制对调试很直接：
-
-- V4L2 设备打不开会显示 `Open failed (-4)`
-- V4L2 ioctl 失败会显示 `I/O error (-5)`
-- MP4 muxer 失败会显示 `Muxer error (-9)`
-- RTSP Server 未启动会显示 `Open failed (-4)` 并提示先启动 mediamtx
-
-## 9. 当前已知问题
-
-- 当前 V4L2 插件未实现 `VIDIOC_QUERYCAP`、`VIDIOC_G_FMT`、`VIDIOC_S_PARM`，格式能力检测仍需完善。
-- `FrameQueue` 会 deep copy frame 数据，可靠但增加内存带宽消耗。
-- `PacketQueue` 会 deep copy H264 packet 数据，但 `extradata` 当前是只读引用，由 encoder 生命周期保证。
-- RTSP 依赖外部 mediamtx；项目没有实现内置 RTSP Server。
-- RTSP 网络断线后没有自动重连。
-- SDL Preview 需要本地图形环境。
-- 当前日志较多，逐帧打印会影响性能测试。
-
-## 10. 建议阅读顺序
-
-先看：
-
-```text
-docs/project/code_reading_guide.md
-```
-
-再看：
-
-```text
-docs/project/system_overview.md
-docs/architecture/app_pipeline.md
-docs/architecture/thread_queue.md
-docs/architecture/data_contract.md
-docs/architecture/plugin_register.md
-docs/architecture/error_handling.md
-```
-
-然后按模块阅读 capture / converter / encoder / muxer / viewer / processor 文档。
+## 4. 文档导航
+
+| 分类 | 文档 | 说明 |
+|---|---|---|
+| Project | [project/system_overview.md](project/system_overview.md) | 系统目标、主视频链路、AI 旁路和项目边界 |
+| Project | [project/directory_structure.md](project/directory_structure.md) | 当前目录职责、关键文件和链路关系 |
+| Project | [project/build_and_run.md](project/build_and_run.md) | 编译、运行和基础验证命令 |
+| Project | [project/dependencies.md](project/dependencies.md) | 系统库和第三方依赖说明 |
+| Project | [project/roadmap.md](project/roadmap.md) | 后续开发路线 |
+| Project | [project/interview_overview.md](project/interview_overview.md) | 面试讲解视角的项目总结 |
+| Project | [project/code_reading_guide.md](project/code_reading_guide.md) | 代码阅读顺序建议 |
+| Architecture | [architecture/README.md](architecture/README.md) | 架构文档入口和总览 |
+| Architecture | [architecture/pipeline_overview.md](architecture/pipeline_overview.md) | 主链路、旁路、线程和队列说明 |
+| Architecture | [architecture/app_pipeline.md](architecture/app_pipeline.md) | AppPipeline 编排说明 |
+| Architecture | [architecture/plugin_register.md](architecture/plugin_register.md) | Register / Find / Ops 插件机制 |
+| Architecture | [architecture/data_contract.md](architecture/data_contract.md) | MediaFrame / MediaPacket 生命周期契约 |
+| Architecture | [architecture/media_data.md](architecture/media_data.md) | 媒体数据结构设计 |
+| Architecture | [architecture/error_handling.md](architecture/error_handling.md) | 统一错误码和错误处理机制 |
+| Architecture | [architecture/thread_queue.md](architecture/thread_queue.md) | FrameQueue / PacketQueue 说明 |
+| Modules | [modules/module_overview.md](modules/module_overview.md) | 各模块输入、输出、插件和文件总览 |
+| Modules | [modules/capture.md](modules/capture.md) | Capture 模块文档入口 |
+| Modules | [modules/converter.md](modules/converter.md) | Converter 模块文档入口 |
+| Modules | [modules/frame_processor.md](modules/frame_processor.md) | FrameProcessor / OSD 模块说明 |
+| Modules | [modules/encoder.md](modules/encoder.md) | Encoder 模块文档入口 |
+| Modules | [modules/muxer.md](modules/muxer.md) | Muxer 模块文档入口 |
+| Modules | [modules/sink.md](modules/sink.md) | FrameSink / snapshot_jpeg 模块文档入口 |
+| Modules | [modules/viewer.md](modules/viewer.md) | SDL Viewer 模块说明 |
+| Knowledge | [knowledge/v4l2.md](knowledge/v4l2.md) | V4L2 capture 工作流 |
+| Knowledge | [knowledge/ioctl.md](knowledge/ioctl.md) | Linux ioctl 说明 |
+| Knowledge | [knowledge/pixel_format.md](knowledge/pixel_format.md) | PixelFormat 知识入口 |
+| Knowledge | [knowledge/yuyv422_to_yuv420p.md](knowledge/yuyv422_to_yuv420p.md) | YUYV422 到 YUV420P 转换说明 |
+| Knowledge | [knowledge/h264.md](knowledge/h264.md) | H264 编码基础 |
+| Knowledge | [knowledge/ffmpeg_encoder.md](knowledge/ffmpeg_encoder.md) | FFmpeg H264 encoder 说明 |
+| Knowledge | [knowledge/ffmpeg_muxer.md](knowledge/ffmpeg_muxer.md) | FFmpeg muxer / MP4 说明 |
+| Knowledge | [knowledge/rtsp.md](knowledge/rtsp.md) | RTSP publisher 测试说明 |
+| Knowledge | [knowledge/sdl.md](knowledge/sdl.md) | SDL 显示知识入口 |
+| Edge AI | [edge_ai/edge_ai_camera_design.md](edge_ai/edge_ai_camera_design.md) | Edge AI 旁路设计 |
+| Edge AI | [edge_ai/env_setup.md](edge_ai/env_setup.md) | Python / Transformers 环境配置 |
+| Edge AI | [edge_ai/snapshot.md](edge_ai/snapshot.md) | snapshot.jpg 导出说明 |
+| Edge AI | [edge_ai/snapshot_sink.md](edge_ai/snapshot_sink.md) | snapshot_jpeg FrameSink 说明 |
+| Edge AI | [edge_ai/ai_service.md](edge_ai/ai_service.md) | AI service 文档入口 |
+| Edge AI | [edge_ai/model_evaluation.md](edge_ai/model_evaluation.md) | 模型评估和限制记录 |
+| Tests | [tests/test_plan.md](tests/test_plan.md) | 总体测试计划 |
+| Tests | [tests/manual_test_cases.md](tests/manual_test_cases.md) | 手动测试用例 |
+| Tests | [tests/stability_test.md](tests/stability_test.md) | 稳定性测试计划 |
+| Tests | [tests/error_test_report.md](tests/error_test_report.md) | 错误码测试报告 |
+| Tests | [tests/test_report.md](tests/test_report.md) | 项目测试记录 |
+
+## 5. 当前文档维护原则
+
+- 根目录只保留 `README.md`。
+- 架构类文档放入 `architecture/`。
+- 模块类文档放入 `modules/`。
+- 多媒体知识说明放入 `knowledge/`。
+- Edge AI 相关内容放入 `edge_ai/`。
+- 测试计划和报告放入 `tests/`。
+- 不在文档中声明“可靠报警已实现”。

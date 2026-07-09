@@ -1,246 +1,158 @@
-# IPC Recorder 系统总览
+# 系统总览
 
-## 1. 系统整体目标
+本文档说明 IPC Recorder / Edge AI Camera 原型系统的目标、主视频链路、AI 旁路链路、当前实现状态和项目边界。
 
-IPC Recorder 的目标是搭建一个 Linux IPC 视频处理 pipeline：
+## 1. 项目目标
+
+本项目目标是构建一个可运行的 Linux IPC Camera 原型：
 
 ```text
 摄像头采集
   → 像素格式转换
-  → 可选图像处理
-  → 可选本地预览
+  → 图像处理
   → H264 编码
-  → MP4 保存 / RTSP 推流
+  → MP4/RTSP 输出
+  → snapshot 旁路
+  → Python Edge AI 推理
 ```
 
-它的重点不是单个 API，而是把 capture、converter、processor、viewer、encoder、muxer 拆成可替换组件，并用 `AppPipeline` 串成一个可运行工程。
+工程重点：
 
-## 2. 当前支持的功能
+- 用 C 实现稳定的主视频链路。
+- 用 Manager + Ops + Register / Find 实现插件化模块管理。
+- 用 ThreadQueue 解耦 capture、process、encode、mux 阶段。
+- 用 FrameSink 插件导出低频 JPEG snapshot。
+- 用 Python AI 服务读取 snapshot 并输出结构化事件。
 
-### V4L2 采集
+## 2. 系统功能
 
-代码：
+| 功能 | 当前实现 |
+|---|---|
+| 摄像头采集 | V4L2 mmap，默认 `/dev/video0` |
+| 像素格式转换 | `YUYV422 -> YUV420P` |
+| 图像处理 | OSD 时间水印 |
+| 编码 | FFmpeg/libx264 H264 |
+| 录像 | MP4 muxer |
+| 推流 | RTSP muxer publisher 结构 |
+| 预览 | SDL display 结构 |
+| Snapshot | `snapshot_jpeg_sink` 每 30 帧输出 JPEG |
+| AI 推理 | `ai_service.py` 调用本地 SmolVLM2-500M |
+| 事件输出 | `event.json` |
+
+## 3. 主视频链路
+
+主视频链路由 C 程序实现，负责实时采集、转换、处理、编码、封装、预览和 snapshot 导出。
 
 ```text
-capture/v4l2_capture.c
-capture/capture_manager.c
-```
-
-输出：
-
-```text
+V4L2 Capture
+  ↓
 MediaFrame(YUYV422)
-```
-
-当前使用 mmap buffer、`VIDIOC_DQBUF` 获取帧、`VIDIOC_QBUF` 归还帧。
-
-### YUYV422 转 YUV420P
-
-代码：
-
-```text
-converter/yuyv_to_yuv420_converter.c
-```
-
-输入 / 输出：
-
-```text
-MediaFrame(YUYV422) -> MediaFrame(YUV420P)
-```
-
-当前使用纯 C 转换，不依赖 swscale。
-
-### OSD / frame_processor
-
-代码：
-
-```text
-frame_processor/osd_processor.c
-```
-
-输入 / 输出：
-
-```text
-MediaFrame(YUV420P) -> MediaFrame(YUV420P)
-```
-
-当前初步实现是绘制简单 OSD 区域，不是完整字体库。
-
-### H264 编码
-
-代码：
-
-```text
-encoder/h264_ffmpeg_encoder.c
-```
-
-输入 / 输出：
-
-```text
-MediaFrame(YUV420P) -> MediaPacket(H264)
-```
-
-当前使用 FFmpeg libavcodec，配置低延迟参数，并输出 keyframe / SPS / PPS extradata 信息。
-
-### MP4 保存
-
-代码：
-
-```text
-muxer/mp4_muxer.c
-```
-
-输入 / 输出：
-
-```text
-MediaPacket(H264) -> output/test.mp4
-```
-
-MP4 muxer 当前使用内部 `frame_index` 生成稳定 1/fps 时间戳。
-
-### RTSP 推流
-
-代码：
-
-```text
-muxer/rtsp_muxer.c
-```
-
-输入 / 输出：
-
-```text
-MediaPacket(H264) -> external RTSP Server
-```
-
-当前是 publisher 模式，需要 mediamtx 等外部 RTSP Server，不是内置 RTSP Server。
-
-### SDL Preview
-
-代码：
-
-```text
-viewer/sdl_display_sdl.c
-```
-
-输入：
-
-```text
+  ↓
+Converter(YUYV422 -> YUV420P)
+  ↓
 MediaFrame(YUV420P)
-```
-
-当前 SDL viewer 内部创建显示线程，使用 `SDL_UpdateYUVTexture()` 显示 YUV420P。
-
-## 3. 整体数据流图
-
-```text
-V4L2 Camera
   ↓
-Capture
-  ↓ MediaFrame(YUYV422)
-Converter
-  ↓ MediaFrame(YUV420P)
-FrameProcessor(optional)
-  ↓ MediaFrame(YUV420P)
-  ├── Viewer(SDL Preview)
+FrameProcessor/OSD
   ↓
-Encoder
-  ↓ MediaPacket(H264)
-Muxer
-  ├── MP4
-  └── RTSP
+FrameSink(snapshot_jpeg) side output
+  ↓
+H264 Encoder
+  ↓
+MediaPacket(H264)
+  ↓
+Muxer(MP4/RTSP)
 ```
 
-当前 `AppPipeline` 中的线程图：
+主链路由 `app/app_pipeline.c` 编排，入口由 `app/main.c` 和 `app/app_config.c` 负责命令行配置。
+
+当前已验证：
+
+```bash
+cd ipc_recorder
+./bin/ipc_recorder --record output/snapshot_test.mp4
+```
+
+该命令可以启动 C 主链路并生成 MP4，同时按固定间隔导出：
 
 ```text
-capture_thread
-  ↓ raw_queue: FrameQueue
-process_thread
-  ├── ConverterManager_Convert
-  ├── FrameProcessorManager_Process(optional)
-  └── ViewerManager_Display(optional)
-  ↓ encode_queue: FrameQueue
-encode_thread
-  ↓ packet_queue: PacketQueue
-mux_thread
-  ├── MuxerManager_WritePacket(mp4)
-  └── MuxerManager_WritePacket(rtsp)
+edge_ai_camera_test/snapshot.jpg
 ```
 
-## 4. 架构类型
+## 4. AI 旁路链路
 
-### Pipeline architecture
-
-数据按固定顺序流动：
+AI 旁路由 Python 实现，不进入 C 主视频链路。
 
 ```text
-capture -> converter -> processor/viewer -> encoder -> muxer
+C 主程序
+  ↓
+snapshot_jpeg_sink
+  ↓
+edge_ai_camera_test/snapshot.jpg
+  ↓
+edge_ai_camera_test/ai_service.py
+  ↓
+models/SmolVLM2-500M-Video-Instruct
+  ↓
+edge_ai_camera_test/event.json
 ```
 
-每个模块只处理自己负责的阶段。
+`ai_service.py` 的职责：
 
-### Component-based architecture
+- 读取 `snapshot.jpg`。
+- 调用本地 SmolVLM2-500M-Video-Instruct。
+- 解析模型输出。
+- 生成固定结构的 `event.json`。
 
-每个模块都有独立 manager：
+AI 旁路不会阻塞 C 主视频链路。C 程序只负责输出 snapshot 文件；Python 推理速度、模型异常或解析失败不影响采集、编码和 muxer。
 
-- `CaptureManager`
-- `ConverterManager`
-- `FrameProcessorManager`
-- `ViewerManager`
-- `EncoderManager`
-- `MuxerManager`
+当前已验证：
 
-AppPipeline 只调用 manager 接口，不直接调用具体插件文件。
+- C 程序可以每秒导出 `edge_ai_camera_test/snapshot.jpg`。
+- Python `ai_service.py` 可以读取 `snapshot.jpg` 并输出 `edge_ai_camera_test/event.json`。
 
-### Plugin registry
+## 5. 当前已实现功能
 
-`modules/module_register.c` 统一注册插件：
+| 子系统 | 已实现内容 |
+|---|---|
+| app | AppConfig 参数解析，AppPipeline 线程编排 |
+| core | 错误码、日志、MediaFrame、MediaPacket、FrameQueue、PacketQueue |
+| capture | fake capture、V4L2 capture |
+| converter | fake converter、YUYV422 到 YUV420P |
+| frame_processor | OSD processor |
+| encoder | fake encoder、H264 FFmpeg encoder |
+| muxer | fake muxer、MP4 muxer、RTSP muxer |
+| sink | FrameSink manager、snapshot_jpeg sink |
+| viewer | SDL display |
+| modules | 静态插件注册 |
+| edge_ai_camera_test | AI 服务脚本、snapshot、event 输出 |
+| tests | core 模块错误码和队列测试 |
 
-- `g_v4l2_capture_ops`
-- `g_yuyv_to_yuv420_ops`
-- `g_osd_processor_ops`
-- `g_sdl_display_ops`
-- `g_h264_ffmpeg_encoder_ops`
-- `g_mp4_muxer_ops`
-- `g_rtsp_muxer_ops`
+## 6. 当前未完成内容
 
-当前是静态插件注册，不是 `.so` 动态加载。
+| 未完成项 | 说明 |
+|---|---|
+| 可靠报警 | SmolVLM2-500M 输出不稳定，不能作为可靠报警模型 |
+| C 侧读取 event.json | 当前 C 主程序不读取 AI 结果 |
+| 动态 snapshot 配置 | 当前 snapshot 间隔固定为 30 帧 |
+| 完整 RTSP Server | 当前是 RTSP publisher，需要外部 mediamtx |
+| 音频链路 | 当前没有 audio capture / encode / mux |
+| 硬件编码 | 当前未接入 RK MPP 等硬件 H264 编码器 |
+| 长时间稳定性验证 | 需要补充 24h 运行、内存、队列堆积和异常恢复测试 |
 
-### Engineering prototype
+## 7. 项目边界
 
-当前工程已经具备完整链路，但仍不是工业级量产系统：
+本项目当前是工程原型，不是量产系统。
 
-- V4L2 能力检测不完整
-- RTSP 没有重连
-- 没有音频
-- 没有性能统计
-- 没有完整错误恢复策略
+明确边界：
 
-## 5. 运行模式
+- C 主视频链路负责实时多媒体处理。
+- Python AI 旁路负责低频 snapshot 推理。
+- AI 不阻塞 C 主链路。
+- AI 输出仅作为后续事件输入，不代表已实现可靠报警。
+- SmolVLM2-500M 只用于验证本地 VLM 推理链路。
 
-### Record only
+当前更有价值的工程结论：
 
-```bash
-./bin/ipc_recorder --device /dev/video0 --record output/test.mp4
-```
-
-### Preview only
-
-```bash
-./bin/ipc_recorder --device /dev/video0 --preview
-```
-
-### RTSP only
-
-```bash
-./bin/ipc_recorder --device /dev/video0 --rtsp rtsp://127.0.0.1:8554/live
-```
-
-### Record + Preview + RTSP
-
-```bash
-./bin/ipc_recorder --device /dev/video0 \
-  --preview \
-  --record output/test.mp4 \
-  --rtsp rtsp://127.0.0.1:8554/live
+```text
+主视频链路和 AI 推理旁路通过 snapshot.jpg / event.json 文件边界解耦。
 ```
