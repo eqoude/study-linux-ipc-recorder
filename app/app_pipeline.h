@@ -5,12 +5,13 @@
 
 #include "app_config.h"
 
-#include "../capture/capture_manager.h"
 #include "../converter/converter_manager.h"
+#include "../capture/capture_manager.h"
 #include "../core/thread_queue.h"
 #include "../encoder/encoder_manager.h"
 #include "../frame_processor/frame_processor_manager.h"
 #include "../muxer/muxer_manager.h"
+#include "../sink/frame_sink_manager.h"
 #include "../viewer/sdl_display_manager.h"
 
 typedef struct {
@@ -25,6 +26,8 @@ typedef struct {
     MuxerManager muxer;
     MuxerManager rtsp_muxer;
     ViewerManager viewer;
+    const FrameSinkOps *snapshot_sink_ops;
+    void *snapshot_sink_ctx;
 
     // 3. 多线程队列
     FrameQueue raw_queue;
@@ -46,6 +49,7 @@ typedef struct {
     int converter_inited;
     int processor_inited;
     int viewer_inited;
+    int snapshot_sink_inited;
     int encoder_inited;
     int muxer_inited;
     int rtsp_muxer_inited;

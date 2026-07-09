@@ -21,9 +21,10 @@ FFmpeg 是当前工程中 H264 编码、MP4 封装和 RTSP publisher 的核心�
 |---|---|---|
 | libavcodec | `encoder/h264_ffmpeg_encoder.c`、`core/media_packet.h` | 创建 H264 encoder，执行 `avcodec_send_frame()`、`avcodec_receive_packet()`，输出 H264 `AVPacket`。 |
 | libavformat | `muxer/mp4_muxer.c`、`muxer/rtsp_muxer.c` | 创建 MP4 / RTSP 输出上下文，创建 `AVStream`，写 header、packet、trailer。 |
-| libavutil | encoder、muxer、core | 提供 `AVRational`、`av_malloc`、`av_free`、`av_rescale_q`、`AVFrame`、`AVPacket` 等辅助能力。 |
+| libavutil | encoder、muxer、core、sink | 提供 `AVRational`、`av_malloc`、`av_free`、`av_rescale_q`、`AVFrame`、`AVPacket` 等辅助能力。 |
+| libswscale | `sink/snapshot_jpeg_sink.c` | 将 `MediaFrame(YUV420P)` 转成 MJPEG encoder 接受的像素格式，用于 JPEG snapshot 导出。 |
 
-当前工程的 YUYV422 到 YUV420P 转换是纯 C 实现，没有使用 FFmpeg `libswscale`，因此 `libswscale` 不属于当前主依赖。
+当前工程的 YUYV422 到 YUV420P 转换仍是纯 C 实现；`libswscale` 只用于 `snapshot_jpeg` FrameSink 的 JPEG 导出路径。
 
 ## 3. 图像显示依赖
 
@@ -63,6 +64,7 @@ sudo apt install -y \
     libavcodec-dev \
     libavformat-dev \
     libavutil-dev \
+    libswscale-dev \
     libsdl2-dev
 ```
 
@@ -83,8 +85,8 @@ sudo apt install -y v4l-utils
 Makefile 当前使用：
 
 ```make
-FFMPEG_CFLAGS := $(shell pkg-config --cflags libavcodec libavformat libavutil)
-FFMPEG_LIBS := $(shell pkg-config --libs libavcodec libavformat libavutil)
+FFMPEG_CFLAGS := $(shell pkg-config --cflags libavcodec libavformat libavutil libswscale)
+FFMPEG_LIBS := $(shell pkg-config --libs libavcodec libavformat libavutil libswscale)
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2)
 SDL_LIBS := $(shell pkg-config --libs sdl2)
 ```
@@ -92,7 +94,7 @@ SDL_LIBS := $(shell pkg-config --libs sdl2)
 等价命令：
 
 ```bash
-pkg-config --cflags --libs libavcodec libavformat libavutil
+pkg-config --cflags --libs libavcodec libavformat libavutil libswscale
 pkg-config --cflags --libs sdl2
 ```
 
@@ -111,7 +113,6 @@ LDFLAGS := -pthread
 | mediamtx | RTSP 测试环境 | 作为 RTSP server，接收 IPC Recorder 推流，供 ffplay / VLC 拉流测试。 | 不是代码编译依赖，是 RTSP publisher 测试工具。 |
 | ffplay | 测试验证 | 播放 RTSP / MP4，验证画面、延迟、SPS/PPS、关键帧。 | 来自 FFmpeg 工具包，不参与工程链接。 |
 | ffprobe | 测试验证 | 检查 MP4 / RTSP 的编码参数、PTS/DTS、duration、fps、码率、关键帧等。 | 来自 FFmpeg 工具包，不参与工程链接。 |
-| libswscale | 后续 converter 扩展 | 可用于更多像素格式转换。 | 当前 YUYV422 -> YUV420P 是纯 C 实现，未使用。 |
 | RK MPP | 后续 RK3566 / Rockchip 硬件编码 | 替换软件 H264 编码，提高嵌入式平台编码性能。 | 当前未接入，不是主依赖。 |
 | GStreamer / live555 | 后续可选 RTSP server 实现 | 如果未来不依赖 mediamtx，可考虑在设备端实现 RTSP server。 | 当前 FFmpeg RTSP muxer 是 publisher，不直接依赖它们。 |
 
@@ -120,7 +121,7 @@ LDFLAGS := -pthread
 当前工程的核心编译依赖是 Linux + pthread + FFmpeg + SDL2。
 
 - V4L2 用于摄像头采集。
-- FFmpeg 用于 H264 编码和 MP4 / RTSP 封装。
+- FFmpeg 用于 H264 编码、MP4 / RTSP 封装，以及 snapshot JPEG 导出。
 - pthread 用于多线程 pipeline 和 queue 同步。
 - SDL2 用于本地实时 preview。
 

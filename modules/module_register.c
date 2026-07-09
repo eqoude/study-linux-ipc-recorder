@@ -1,5 +1,7 @@
 #include "module_register.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 
 #include "../capture/capture_manager.h"
@@ -7,6 +9,7 @@
 #include "../encoder/encoder_manager.h"
 #include "../frame_processor/frame_processor_manager.h"
 #include "../muxer/muxer_manager.h"
+#include "../sink/frame_sink_manager.h"
 #include "../viewer/sdl_display_manager.h"
 
 extern const CaptureOps g_fake_capture_ops;
@@ -20,16 +23,16 @@ extern const EncoderOps g_h264_ffmpeg_encoder_ops;
 extern const FrameProcessorOps g_osd_processor_ops;
 extern const MuxerOps g_mp4_muxer_ops;
 extern const MuxerOps g_rtsp_muxer_ops;
+extern const FrameSinkOps g_snapshot_jpeg_sink_ops;
 extern const ViewerOps g_sdl_display_ops;
 
 static int module_register_check(const char *module_name, int ret)
 {
     if (ret != IPC_OK) {
-        fprintf(stderr,
-                "[module_register] register %s failed: %s (%d)\n",
-                module_name,
-                IpcError_ToString(ret),
-                ret);
+        IPC_LOGE("[module_register] register %s failed: %s (%d)",
+                 module_name,
+                 IpcError_ToString(ret),
+                 ret);
     }
 
     return ret;
@@ -91,6 +94,11 @@ int RegisterAllModules(void)
 
     ret = RegisterViewer("sdl", &g_sdl_display_ops);
     if (module_register_check("sdl_display", ret) != IPC_OK) {
+        return ret;
+    }
+
+    ret = FrameSink_Register(&g_snapshot_jpeg_sink_ops);
+    if (module_register_check("snapshot_jpeg_sink", ret) != IPC_OK) {
         return ret;
     }
 

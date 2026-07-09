@@ -2,6 +2,8 @@
 
 #include "capture_manager.h"
 
+#include "ipc_log.h"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
@@ -93,9 +95,8 @@ static int v4l2_capture_init(CaptureManager *manager)
 
     v4l2_pixfmt = PixelFormat_ToV4L2(manager->config.pixel_format);
     if (v4l2_pixfmt == 0) {
-        fprintf(stderr,
-                "[v4l2] unsupported pixel format config: %d\n",
-                manager->config.pixel_format);
+        IPC_LOGE("[v4l2] unsupported pixel format config: %d",
+                 manager->config.pixel_format);
         return IPC_EINVAL;
     }
 
@@ -110,7 +111,7 @@ static int v4l2_capture_init(CaptureManager *manager)
     ctx->pixel_format = manager->config.pixel_format;
     ctx->v4l2_pixelformat = v4l2_pixfmt;
     manager->priv = ctx;
-    printf("[v4l2] init\n");
+    IPC_LOGI("[v4l2] init");
 
     return IPC_OK;
 }
@@ -139,7 +140,7 @@ static void v4l2_capture_deinit(CaptureManager *manager)
 
     free(ctx);
     manager->priv = NULL;
-    printf("[v4l2] deinit\n");
+    IPC_LOGI("[v4l2] deinit");
 }
 
 static int v4l2_capture_open(CaptureManager *manager)
@@ -179,20 +180,19 @@ static int v4l2_capture_open(CaptureManager *manager)
     v4l2_format_to_string(ctx->v4l2_pixelformat, requested_fourcc);
     v4l2_format_to_string(format.fmt.pix.pixelformat, actual_fourcc);
 
-    printf("[v4l2] requested format: width=%d height=%d pixelformat=%s\n",
-           manager->config.width,
-           manager->config.height,
-           requested_fourcc);
-    printf("[v4l2] actual format: width=%u height=%u pixelformat=%s\n",
-           format.fmt.pix.width,
-           format.fmt.pix.height,
-           actual_fourcc);
+    IPC_LOGI("[v4l2] requested format: width=%d height=%d pixelformat=%s",
+             manager->config.width,
+             manager->config.height,
+             requested_fourcc);
+    IPC_LOGI("[v4l2] actual format: width=%u height=%u pixelformat=%s",
+             format.fmt.pix.width,
+             format.fmt.pix.height,
+             actual_fourcc);
 
     if (format.fmt.pix.pixelformat != ctx->v4l2_pixelformat) {
-        fprintf(stderr,
-                "[v4l2] driver changed pixelformat: requested=%s actual=%s\n",
-                requested_fourcc,
-                actual_fourcc);
+        IPC_LOGE("[v4l2] driver changed pixelformat: requested=%s actual=%s",
+                 requested_fourcc,
+                 actual_fourcc);
         return IPC_EINVAL;
     }
 
@@ -211,7 +211,7 @@ static int v4l2_capture_open(CaptureManager *manager)
     }
 
     if (request.count < V4L2_CAPTURE_BUFFER_COUNT) {
-        fprintf(stderr, "[v4l2] insufficient buffers: %u\n", request.count);
+        IPC_LOGE("[v4l2] insufficient buffers: %u", request.count);
         return IPC_EIO;
     }
 
@@ -250,7 +250,12 @@ static int v4l2_capture_open(CaptureManager *manager)
     }
 
     manager->state = CAPTURE_STATE_READY;
-    printf("[v4l2] open %s\n", manager->config.device_path);
+    IPC_LOGI("[v4l2] open %s width=%d height=%d pixfmt=%s fps=%d",
+             manager->config.device_path,
+             ctx->width,
+             ctx->height,
+             actual_fourcc,
+             manager->config.fps);
 
     return IPC_OK;
 }
@@ -270,7 +275,7 @@ static void v4l2_capture_close(CaptureManager *manager)
     }
 
     manager->state = CAPTURE_STATE_STOPPED;
-    printf("[v4l2] close\n");
+    IPC_LOGI("[v4l2] close");
 }
 
 static int v4l2_capture_start(CaptureManager *manager)
@@ -298,7 +303,7 @@ static int v4l2_capture_start(CaptureManager *manager)
     ctx->frame_index = 0;
     ctx->streaming = 1;
     manager->state = CAPTURE_STATE_RUNNING;
-    printf("[v4l2] start\n");
+    IPC_LOGI("[v4l2] start");
 
     return IPC_OK;
 }
@@ -321,7 +326,7 @@ static void v4l2_capture_stop(CaptureManager *manager)
     }
 
     manager->state = CAPTURE_STATE_STOPPED;
-    printf("[v4l2] stop\n");
+    IPC_LOGI("[v4l2] stop");
 }
 
 static int v4l2_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
@@ -366,7 +371,7 @@ static int v4l2_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
     frame->size = (int)buffer.bytesused;
     frame->pts = ctx->frame_index++;
 
-    printf("[v4l2] get_frame index=%u size=%d\n", buffer.index, frame->size);
+    IPC_LOGD("[v4l2] get_frame index=%u size=%d", buffer.index, frame->size);
 
     return IPC_OK;
 }
@@ -385,7 +390,7 @@ static int v4l2_capture_release_frame(CaptureManager *manager, MediaFrame *frame
     ctx = (V4L2CaptureContext *)manager->priv;
     for (unsigned int i = 0; i < ctx->buffer_count; ++i) {
         if (ctx->buffers[i].start == frame->data[0]) {
-            printf("[v4l2] release_frame index=%u\n", i);
+            IPC_LOGD("[v4l2] release_frame index=%u", i);
             return v4l2_capture_queue_buffer(ctx, i);
         }
     }

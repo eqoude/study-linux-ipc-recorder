@@ -1,5 +1,7 @@
 #include "capture_manager.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 
 static int fake_capture_init(CaptureManager *manager)
@@ -8,14 +10,14 @@ static int fake_capture_init(CaptureManager *manager)
         return IPC_EINVAL;
     }
 
-    printf("[fake_capture] init\n");
+    IPC_LOGI("[fake_capture] init");
     return IPC_OK;
 }
 
 static void fake_capture_deinit(CaptureManager *manager)
 {
     (void)manager;
-    printf("[fake_capture] deinit\n");
+    IPC_LOGI("[fake_capture] deinit");
 }
 
 static int fake_capture_open(CaptureManager *manager)
@@ -24,14 +26,14 @@ static int fake_capture_open(CaptureManager *manager)
         return IPC_EINVAL;
     }
 
-    printf("[fake_capture] open\n");
+    IPC_LOGI("[fake_capture] open");
     return IPC_OK;
 }
 
 static void fake_capture_close(CaptureManager *manager)
 {
     (void)manager;
-    printf("[fake_capture] close\n");
+    IPC_LOGI("[fake_capture] close");
 }
 
 static int fake_capture_start(CaptureManager *manager)
@@ -40,14 +42,14 @@ static int fake_capture_start(CaptureManager *manager)
         return IPC_EINVAL;
     }
 
-    printf("[fake_capture] start\n");
+    IPC_LOGI("[fake_capture] start");
     return IPC_OK;
 }
 
 static void fake_capture_stop(CaptureManager *manager)
 {
     (void)manager;
-    printf("[fake_capture] stop\n");
+    IPC_LOGI("[fake_capture] stop");
 }
 
 static int fake_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
@@ -56,7 +58,7 @@ static int fake_capture_get_frame(CaptureManager *manager, MediaFrame *frame)
         return IPC_EINVAL;
     }
 
-    printf("[fake_capture] get_frame\n");
+    IPC_LOGD("[fake_capture] get_frame");
 
     frame->width = manager->config.width;
     frame->height = manager->config.height;
@@ -79,7 +81,7 @@ static int fake_capture_release_frame(CaptureManager *manager, MediaFrame *frame
         return IPC_EINVAL;
     }
 
-    printf("[fake_capture] release_frame\n");
+    IPC_LOGD("[fake_capture] release_frame");
     return IPC_OK;
 }
 

@@ -1,5 +1,7 @@
 #include "muxer_manager.h"
 
+#include "ipc_log.h"
+
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,18 +60,18 @@ static int mp4_muxer_write_header_if_needed(Mp4MuxerContext *ctx,
 
     ret = mp4_muxer_copy_extradata(ctx->video_stream->codecpar, packet);
     if (ret != IPC_OK) {
-        fprintf(stderr, "[mp4] missing H264 extradata\n");
+        IPC_LOGE("[mp4] missing H264 extradata");
         return ret;
     }
 
     ret = avformat_write_header(ctx->format_ctx, NULL);
     if (ret < 0) {
-        fprintf(stderr, "[mp4] avformat_write_header failed: %d\n", ret);
+        IPC_LOGE("[mp4] avformat_write_header failed: %d", ret);
         return IPC_EMUXER;
     }
 
     ctx->header_written = 1;
-    printf("[mp4] write_header\n");
+    IPC_LOGI("[mp4] write_header");
     return IPC_OK;
 }
 
@@ -92,7 +94,7 @@ static int mp4_muxer_init(MuxerManager *manager)
     ctx->frame_index = 0;
     manager->priv = ctx;
 
-    printf("[mp4] init\n");
+    IPC_LOGI("[mp4] init");
     return IPC_OK;
 }
 
@@ -113,7 +115,7 @@ static void mp4_muxer_deinit(MuxerManager *manager)
     free(ctx);
     manager->priv = NULL;
 
-    printf("[mp4] deinit\n");
+    IPC_LOGI("[mp4] deinit");
 }
 
 static int mp4_muxer_open(MuxerManager *manager)
@@ -133,7 +135,7 @@ static int mp4_muxer_open(MuxerManager *manager)
     ret = avformat_alloc_output_context2(&ctx->format_ctx, NULL, "mp4",
                                          ctx->config.output_path);
     if (ret < 0 || ctx->format_ctx == NULL) {
-        fprintf(stderr, "[mp4] avformat_alloc_output_context2 failed: %d\n", ret);
+        IPC_LOGE("[mp4] avformat_alloc_output_context2 failed: %d", ret);
         return IPC_EMUXER;
     }
     ctx->format_ctx->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_ZERO;
@@ -160,12 +162,12 @@ static int mp4_muxer_open(MuxerManager *manager)
     if ((ctx->format_ctx->oformat->flags & AVFMT_NOFILE) == 0) {
         ret = avio_open(&ctx->format_ctx->pb, ctx->config.output_path, AVIO_FLAG_WRITE);
         if (ret < 0) {
-            fprintf(stderr, "[mp4] avio_open failed: %d\n", ret);
+            IPC_LOGE("[mp4] avio_open failed: %d", ret);
             return IPC_EOPEN;
         }
     }
 
-    printf("[mp4] open %s\n", ctx->config.output_path);
+    IPC_LOGI("[mp4] open %s", ctx->config.output_path);
     return IPC_OK;
 }
 
@@ -182,7 +184,7 @@ static void mp4_muxer_close(MuxerManager *manager)
         avio_closep(&ctx->format_ctx->pb);
     }
 
-    printf("[mp4] close\n");
+    IPC_LOGI("[mp4] close");
 }
 
 static int mp4_muxer_write_header(MuxerManager *manager)
@@ -202,7 +204,7 @@ static int mp4_muxer_write_header(MuxerManager *manager)
     }
 
     ctx->header_requested = 1;
-    printf("[mp4] write_header pending\n");
+    IPC_LOGI("[mp4] write_header pending");
     return IPC_OK;
 }
 
@@ -270,7 +272,7 @@ static int mp4_muxer_write_packet(MuxerManager *manager,
 
     ret = av_interleaved_write_frame(ctx->format_ctx, &av_packet);
     if (ret < 0) {
-        fprintf(stderr,"[mp4] av_interleaved_write_frame failed: %d\n",ret);
+        IPC_LOGE("[mp4] av_interleaved_write_frame failed: %d", ret);
         av_packet_unref(&av_packet);
         return IPC_EMUXER;
     }
@@ -281,7 +283,7 @@ static int mp4_muxer_write_packet(MuxerManager *manager,
      */
     ctx->frame_index++;
 
-    printf("[mp4] write_packet size=%d\n", packet->size);
+    IPC_LOGD("[mp4] write_packet size=%d", packet->size);
     return IPC_OK;
 }
 
@@ -307,11 +309,11 @@ static int mp4_muxer_write_trailer(MuxerManager *manager)
 
     ret = av_write_trailer(ctx->format_ctx);
     if (ret < 0) {
-        fprintf(stderr, "[mp4] av_write_trailer failed: %d\n", ret);
+        IPC_LOGE("[mp4] av_write_trailer failed: %d", ret);
         return IPC_EMUXER;
     }
 
-    printf("[mp4] write_trailer\n");
+    IPC_LOGI("[mp4] write_trailer");
     return IPC_OK;
 }
 

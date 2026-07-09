@@ -1,5 +1,7 @@
 #include "muxer_manager.h"
 
+#include "ipc_log.h"
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,13 +45,12 @@ static void rtsp_muxer_print_error(const char *operation, int errnum)
         snprintf(errbuf, sizeof(errbuf), "unknown error");
     }
 
-    fprintf(stderr, "[rtsp] %s failed: %d (%s)\n", operation, errnum, errbuf);
+    IPC_LOGE("[rtsp] %s failed: %d (%s)", operation, errnum, errbuf);
     if (mapped_error == IPC_EOPEN) {
-        fprintf(stderr,
-                "[rtsp] RTSP server not available: %s (%d). "
-                "Please start mediamtx or another RTSP server first.\n",
-                IpcError_ToString(mapped_error),
-                mapped_error);
+        IPC_LOGE("[rtsp] RTSP server not available: %s (%d). "
+                 "Please start mediamtx or another RTSP server first.",
+                 IpcError_ToString(mapped_error),
+                 mapped_error);
     }
 }
 
@@ -93,7 +94,7 @@ static int rtsp_muxer_write_header_with_packet(RtspMuxerContext *ctx,
 
     ret = rtsp_muxer_copy_extradata(ctx->video_stream->codecpar, packet);
     if (ret != IPC_OK) {
-        fprintf(stderr, "[rtsp] missing H264 SPS/PPS extradata\n");
+        IPC_LOGE("[rtsp] missing H264 SPS/PPS extradata");
         return ret;
     }
 
@@ -106,7 +107,7 @@ static int rtsp_muxer_write_header_with_packet(RtspMuxerContext *ctx,
     }
 
     ctx->header_written = 1;
-    printf("[rtsp] write_header\n");
+    IPC_LOGI("[rtsp] write_header");
     return IPC_OK;
 }
 
@@ -129,7 +130,7 @@ static int rtsp_muxer_init(MuxerManager *manager)
     ctx->frame_index = 0;
     manager->priv = ctx;
 
-    printf("[rtsp] init\n");
+    IPC_LOGI("[rtsp] init");
     return IPC_OK;
 }
 
@@ -160,7 +161,7 @@ static void rtsp_muxer_deinit(MuxerManager *manager)
     free(ctx);
     manager->priv = NULL;
 
-    printf("[rtsp] deinit\n");
+    IPC_LOGI("[rtsp] deinit");
 }
 
 static int rtsp_muxer_open(MuxerManager *manager)
@@ -180,7 +181,7 @@ static int rtsp_muxer_open(MuxerManager *manager)
     ret = avformat_alloc_output_context2(&ctx->format_ctx, NULL, "rtsp",
                                          ctx->config.output_path);
     if (ret < 0 || ctx->format_ctx == NULL) {
-        fprintf(stderr, "[rtsp] avformat_alloc_output_context2 failed: %d\n", ret);
+        IPC_LOGE("[rtsp] avformat_alloc_output_context2 failed: %d", ret);
         return IPC_EMUXER;
     }
 
@@ -203,7 +204,7 @@ static int rtsp_muxer_open(MuxerManager *manager)
 
     ctx->video_stream = stream;
 
-    printf("[rtsp] open %s\n", ctx->config.output_path);
+    IPC_LOGI("[rtsp] open %s", ctx->config.output_path);
     return IPC_OK;
 }
 
@@ -220,7 +221,7 @@ static void rtsp_muxer_close(MuxerManager *manager)
         avio_closep(&ctx->format_ctx->pb);
     }
 
-    printf("[rtsp] close\n");
+    IPC_LOGI("[rtsp] close");
 }
 
 static int rtsp_muxer_write_header(MuxerManager *manager)
@@ -243,7 +244,7 @@ static int rtsp_muxer_write_header(MuxerManager *manager)
     }
 
     ctx->header_requested = 1;
-    printf("[rtsp] write_header pending\n");
+    IPC_LOGI("[rtsp] write_header pending");
     return IPC_OK;
 }
 
@@ -273,7 +274,7 @@ static int rtsp_muxer_write_packet(MuxerManager *manager,
     }
     if (!ctx->header_written) {
         if (!ctx->header_requested) {
-            fprintf(stderr, "[rtsp] write_packet before write_header\n");
+            IPC_LOGE("[rtsp] write_packet before write_header");
             return IPC_ESTATE;
         }
         ret = rtsp_muxer_write_header_with_packet(ctx, packet);
@@ -315,7 +316,7 @@ static int rtsp_muxer_write_packet(MuxerManager *manager,
 
     ret = av_interleaved_write_frame(ctx->format_ctx, &av_packet);
     if (ret < 0) {
-        fprintf(stderr, "[rtsp] av_interleaved_write_frame failed: %d\n", ret);
+        IPC_LOGE("[rtsp] av_interleaved_write_frame failed: %d", ret);
         av_packet_unref(&av_packet);
         return IPC_EMUXER;
     }
@@ -343,12 +344,12 @@ static int rtsp_muxer_write_trailer(MuxerManager *manager)
 
     ret = av_write_trailer(ctx->format_ctx);
     if (ret < 0) {
-        fprintf(stderr, "[rtsp] av_write_trailer failed: %d\n", ret);
+        IPC_LOGE("[rtsp] av_write_trailer failed: %d", ret);
         return IPC_EMUXER;
     }
 
     ctx->trailer_written = 1;
-    printf("[rtsp] write_trailer\n");
+    IPC_LOGI("[rtsp] write_trailer");
     return IPC_OK;
 }
 

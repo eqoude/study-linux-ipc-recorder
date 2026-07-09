@@ -1,5 +1,7 @@
 #include "converter_manager.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -54,7 +56,7 @@ static int yuyv_to_yuv420_init(ConverterManager *manager)
     ctx->size = size;
     manager->priv = ctx;
 
-    printf("[yuyv_to_yuv420] init\n");
+    IPC_LOGI("[yuyv_to_yuv420] init");
     return IPC_OK;
 }
 
@@ -71,7 +73,7 @@ static void yuyv_to_yuv420_deinit(ConverterManager *manager)
     free(ctx);
     manager->priv = NULL;
 
-    printf("[yuyv_to_yuv420] deinit\n");
+    IPC_LOGI("[yuyv_to_yuv420] deinit");
 }
 
 static int yuyv_to_yuv420_convert(ConverterManager *manager,
@@ -152,7 +154,7 @@ static int yuyv_to_yuv420_convert(ConverterManager *manager,
     dst_frame->size = ctx->size;
     dst_frame->pts = src_frame->pts;
 
-    printf("[yuyv_to_yuv420] convert\n");
+    IPC_LOGD("[yuyv_to_yuv420] convert");
     return IPC_OK;
 }
 

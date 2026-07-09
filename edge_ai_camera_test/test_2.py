@@ -6,7 +6,7 @@ messages = [
         "role": "user",
         "content": [
             {"type": "image", "url": "./edge_ai_camera_test/candy.JPG"},
-            {"type": "text", "text": "What animal is on the candy?"}
+            {"type": "text", "text": "Can you describe this image?"}
         ]
     },
 ]

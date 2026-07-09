@@ -6,8 +6,8 @@ BUILD_DIR := build
 BIN_DIR := bin
 OUTPUT_DIR := output
 
-FFMPEG_CFLAGS := $(shell pkg-config --cflags libavcodec libavformat libavutil)
-FFMPEG_LIBS := $(shell pkg-config --libs libavcodec libavformat libavutil)
+FFMPEG_CFLAGS := $(shell pkg-config --cflags libavcodec libavformat libavutil libswscale)
+FFMPEG_LIBS := $(shell pkg-config --libs libavcodec libavformat libavutil libswscale)
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2)
 SDL_LIBS := $(shell pkg-config --libs sdl2)
 
@@ -19,9 +19,11 @@ CFLAGS := -Wall -Wextra -g -O0 \
           -Iframe_processor \
           -Imuxer \
           -Imodules \
+          -Isink \
           -Iviewer \
           $(FFMPEG_CFLAGS) \
-          $(SDL_CFLAGS)
+          $(SDL_CFLAGS) \
+          $(CFLAGS_EXTRA)
 
 LDFLAGS := -pthread
 
@@ -36,6 +38,7 @@ SRCS := \
     $(wildcard frame_processor/*.c) \
     $(wildcard muxer/*.c) \
     $(wildcard modules/*.c) \
+    $(wildcard sink/*.c) \
     $(wildcard viewer/*.c)
 
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))

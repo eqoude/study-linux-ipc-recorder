@@ -1,5 +1,7 @@
 #include "sdl_display_manager.h"
 
+#include "ipc_log.h"
+
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -80,7 +82,7 @@ static int sdl_display_thread(void *arg)
     SDL_Event event;
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        fprintf(stderr, "[sdl_display] SDL_Init failed: %s\n", SDL_GetError());
+        IPC_LOGE("[sdl_display] SDL_Init failed: %s", SDL_GetError());
         ctx->init_result = IPC_EIO;
         ctx->ready = 1;
         return IPC_EIO;
@@ -93,7 +95,7 @@ static int sdl_display_thread(void *arg)
                                    ctx->height,
                                    SDL_WINDOW_SHOWN);
     if (ctx->window == NULL) {
-        fprintf(stderr, "[sdl_display] SDL_CreateWindow failed: %s\n", SDL_GetError());
+        IPC_LOGE("[sdl_display] SDL_CreateWindow failed: %s", SDL_GetError());
         ctx->init_result = IPC_EIO;
         ctx->ready = 1;
         SDL_Quit();
@@ -105,7 +107,7 @@ static int sdl_display_thread(void *arg)
         ctx->renderer = SDL_CreateRenderer(ctx->window, -1, SDL_RENDERER_SOFTWARE);
     }
     if (ctx->renderer == NULL) {
-        fprintf(stderr, "[sdl_display] SDL_CreateRenderer failed: %s\n", SDL_GetError());
+        IPC_LOGE("[sdl_display] SDL_CreateRenderer failed: %s", SDL_GetError());
         ctx->init_result = IPC_EIO;
         ctx->ready = 1;
         SDL_DestroyWindow(ctx->window);
@@ -119,7 +121,7 @@ static int sdl_display_thread(void *arg)
                                      ctx->width,
                                      ctx->height);
     if (ctx->texture == NULL) {
-        fprintf(stderr, "[sdl_display] SDL_CreateTexture failed: %s\n", SDL_GetError());
+        IPC_LOGE("[sdl_display] SDL_CreateTexture failed: %s", SDL_GetError());
         ctx->init_result = IPC_EIO;
         ctx->ready = 1;
         SDL_DestroyRenderer(ctx->renderer);
@@ -152,9 +154,8 @@ static int sdl_display_thread(void *arg)
                                          ctx->width / 2,
                                          v_plane,
                                          ctx->width / 2) != 0) {
-                    fprintf(stderr,
-                            "[sdl_display] SDL_UpdateYUVTexture failed: %s\n",
-                            SDL_GetError());
+                    IPC_LOGE("[sdl_display] SDL_UpdateYUVTexture failed: %s",
+                             SDL_GetError());
                     ctx->error_result = IPC_EIO;
                     ctx->running = 0;
                 }
@@ -164,12 +165,12 @@ static int sdl_display_thread(void *arg)
         }
 
         if (SDL_RenderClear(ctx->renderer) != 0) {
-            fprintf(stderr, "[sdl_display] SDL_RenderClear failed: %s\n", SDL_GetError());
+            IPC_LOGE("[sdl_display] SDL_RenderClear failed: %s", SDL_GetError());
             ctx->error_result = IPC_EIO;
             ctx->running = 0;
         }
         if (SDL_RenderCopy(ctx->renderer, ctx->texture, NULL, NULL) != 0) {
-            fprintf(stderr, "[sdl_display] SDL_RenderCopy failed: %s\n", SDL_GetError());
+            IPC_LOGE("[sdl_display] SDL_RenderCopy failed: %s", SDL_GetError());
             ctx->error_result = IPC_EIO;
             ctx->running = 0;
         }
@@ -237,7 +238,7 @@ static int sdl_display_init(void *manager)
     }
 
     viewer->priv = ctx;
-    printf("[sdl_display] init\n");
+    IPC_LOGI("[sdl_display] init");
     return IPC_OK;
 }
 
@@ -299,7 +300,7 @@ static void sdl_display_deinit(void *manager)
     free(ctx);
     viewer->priv = NULL;
 
-    printf("[sdl_display] deinit\n");
+    IPC_LOGI("[sdl_display] deinit");
 }
 
 const ViewerOps g_sdl_display_ops = {

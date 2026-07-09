@@ -1,5 +1,7 @@
 #include "encoder_manager.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 
 static unsigned char g_fake_h264_packet[] = { 0x00, 0x00, 0x00, 0x01, 0x65 };
@@ -10,14 +12,14 @@ static int fake_encoder_init(EncoderManager *manager)
         return IPC_EINVAL;
     }
 
-    printf("[fake_encoder] init\n");
+    IPC_LOGI("[fake_encoder] init");
     return IPC_OK;
 }
 
 static void fake_encoder_deinit(EncoderManager *manager)
 {
     (void)manager;
-    printf("[fake_encoder] deinit\n");
+    IPC_LOGI("[fake_encoder] deinit");
 }
 
 static int fake_encoder_encode(EncoderManager *manager,
@@ -28,7 +30,7 @@ static int fake_encoder_encode(EncoderManager *manager,
         return IPC_EINVAL;
     }
 
-    printf("[fake_encoder] encode\n");
+    IPC_LOGD("[fake_encoder] encode");
 
     out_packet->data = g_fake_h264_packet;
     out_packet->size = (int)sizeof(g_fake_h264_packet);
@@ -46,7 +48,7 @@ static int fake_encoder_flush(EncoderManager *manager, MediaPacket *out_packet)
         return IPC_EINVAL;
     }
 
-    printf("[fake_encoder] flush\n");
+    IPC_LOGD("[fake_encoder] flush");
     return IPC_EOF;
 }
 

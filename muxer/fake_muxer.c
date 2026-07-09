@@ -1,5 +1,7 @@
 #include "muxer_manager.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 
 static int fake_muxer_init(MuxerManager *manager)
@@ -8,14 +10,14 @@ static int fake_muxer_init(MuxerManager *manager)
         return IPC_EINVAL;
     }
 
-    printf("[fake_muxer] init\n");
+    IPC_LOGI("[fake_muxer] init");
     return IPC_OK;
 }
 
 static void fake_muxer_deinit(MuxerManager *manager)
 {
     (void)manager;
-    printf("[fake_muxer] deinit\n");
+    IPC_LOGI("[fake_muxer] deinit");
 }
 
 static int fake_muxer_open(MuxerManager *manager)
@@ -24,14 +26,14 @@ static int fake_muxer_open(MuxerManager *manager)
         return IPC_EINVAL;
     }
 
-    printf("[fake_muxer] open\n");
+    IPC_LOGI("[fake_muxer] open");
     return IPC_OK;
 }
 
 static void fake_muxer_close(MuxerManager *manager)
 {
     (void)manager;
-    printf("[fake_muxer] close\n");
+    IPC_LOGI("[fake_muxer] close");
 }
 
 static int fake_muxer_write_packet(MuxerManager *manager, const MediaPacket *packet)
@@ -40,7 +42,7 @@ static int fake_muxer_write_packet(MuxerManager *manager, const MediaPacket *pac
         return IPC_EINVAL;
     }
 
-    printf("[fake_muxer] write_packet size=%d codec=%d\n", packet->size, packet->codec);
+    IPC_LOGD("[fake_muxer] write_packet size=%d codec=%d", packet->size, packet->codec);
     return IPC_OK;
 }
 

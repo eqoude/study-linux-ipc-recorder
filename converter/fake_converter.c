@@ -1,5 +1,7 @@
 #include "converter_manager.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 
 static int fake_converter_init(ConverterManager *manager)
@@ -8,14 +10,14 @@ static int fake_converter_init(ConverterManager *manager)
         return IPC_EINVAL;
     }
 
-    printf("[fake_converter] init\n");
+    IPC_LOGI("[fake_converter] init");
     return IPC_OK;
 }
 
 static void fake_converter_deinit(ConverterManager *manager)
 {
     (void)manager;
-    printf("[fake_converter] deinit\n");
+    IPC_LOGI("[fake_converter] deinit");
 }
 
 static int fake_converter_convert(ConverterManager *manager,
@@ -26,7 +28,7 @@ static int fake_converter_convert(ConverterManager *manager,
         return IPC_EINVAL;
     }
 
-    printf("[fake_converter] convert\n");
+    IPC_LOGD("[fake_converter] convert");
 
     *dst_frame = *src_frame;
     dst_frame->pixfmt = PIX_FMT_YUV420P;

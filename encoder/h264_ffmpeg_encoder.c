@@ -1,5 +1,7 @@
 #include "encoder_manager.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,7 +136,7 @@ static int h264_ffmpeg_receive_packets(H264FFmpegEncoderContext *ctx)
             return IPC_EOF;
         }
         if (ret < 0) {
-            fprintf(stderr, "[h264_ffmpeg] avcodec_receive_packet failed: %d\n", ret);
+            IPC_LOGE("[h264_ffmpeg] avcodec_receive_packet failed: %d", ret);
             av_packet_free(&packet);
             return IPC_ECODEC;
         }
@@ -161,7 +163,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
 
     codec = avcodec_find_encoder(AV_CODEC_ID_H264);
     if (codec == NULL) {
-        fprintf(stderr, "[h264_ffmpeg] avcodec_find_encoder failed\n");
+        IPC_LOGE("[h264_ffmpeg] avcodec_find_encoder failed");
         return IPC_ECODEC;
     }
 
@@ -200,7 +202,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
     }
 
     if (avcodec_open2(ctx->codec_ctx, codec, NULL) < 0) {
-        fprintf(stderr, "[h264_ffmpeg] avcodec_open2 failed\n");
+        IPC_LOGE("[h264_ffmpeg] avcodec_open2 failed");
         av_packet_free(&ctx->packet);
         avcodec_free_context(&ctx->codec_ctx);
         free(ctx);
@@ -209,7 +211,7 @@ static int h264_ffmpeg_init(EncoderManager *manager)
 
     if (ctx->codec_ctx->extradata == NULL ||
         ctx->codec_ctx->extradata_size <= 0) {
-        fprintf(stderr, "[h264_ffmpeg] missing H264 SPS/PPS extradata\n");
+        IPC_LOGE("[h264_ffmpeg] missing H264 SPS/PPS extradata");
         av_packet_free(&ctx->packet);
         avcodec_free_context(&ctx->codec_ctx);
         free(ctx);
@@ -231,7 +233,11 @@ static int h264_ffmpeg_init(EncoderManager *manager)
     ctx->extradata_size = ctx->codec_ctx->extradata_size;
 
     manager->priv = ctx;
-    printf("[h264_ffmpeg] init\n");
+    IPC_LOGI("[h264_ffmpeg] init width=%d height=%d fps=%d bitrate=%d",
+             manager->config.width,
+             manager->config.height,
+             manager->config.fps,
+             manager->config.bitrate);
 
     return IPC_OK;
 }
@@ -254,7 +260,7 @@ static void h264_ffmpeg_deinit(EncoderManager *manager)
     free(ctx);
     manager->priv = NULL;
 
-    printf("[h264_ffmpeg] deinit\n");
+    IPC_LOGI("[h264_ffmpeg] deinit");
 }
 
 static int h264_ffmpeg_encode(EncoderManager *manager,
@@ -315,7 +321,7 @@ static int h264_ffmpeg_encode(EncoderManager *manager,
         ret = avcodec_send_frame(ctx->codec_ctx, &av_frame);
     }
     if (ret < 0) {
-        fprintf(stderr, "[h264_ffmpeg] avcodec_send_frame failed: %d\n", ret);
+        IPC_LOGE("[h264_ffmpeg] avcodec_send_frame failed: %d", ret);
         return IPC_ECODEC;
     }
 
@@ -326,7 +332,7 @@ static int h264_ffmpeg_encode(EncoderManager *manager,
 
     ret = h264_ffmpeg_pop_packet(ctx, out_packet);
     if (ret == IPC_OK) {
-        printf("[h264_ffmpeg] encode\n");
+        IPC_LOGD("[h264_ffmpeg] encode");
     }
     return ret;
 }
@@ -354,7 +360,7 @@ static int h264_ffmpeg_flush(EncoderManager *manager, MediaPacket *out_packet)
     if (!ctx->flushing) {
         ret = avcodec_send_frame(ctx->codec_ctx, NULL);
         if (ret < 0 && ret != AVERROR_EOF) {
-            fprintf(stderr, "[h264_ffmpeg] flush send failed: %d\n", ret);
+            IPC_LOGE("[h264_ffmpeg] flush send failed: %d", ret);
             return IPC_ECODEC;
         }
         ctx->flushing = 1;
@@ -368,7 +374,7 @@ static int h264_ffmpeg_flush(EncoderManager *manager, MediaPacket *out_packet)
     int receive_ret = ret;
     ret = h264_ffmpeg_pop_packet(ctx, out_packet);
     if (ret == IPC_OK) {
-        printf("[h264_ffmpeg] flush\n");
+        IPC_LOGD("[h264_ffmpeg] flush");
         return IPC_OK;
     }
 

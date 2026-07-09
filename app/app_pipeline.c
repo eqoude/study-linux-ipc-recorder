@@ -1,20 +1,33 @@
 #include "app_pipeline.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 #include <string.h>
 
 #include "../modules/module_register.h"
+#include "../sink/snapshot_jpeg_sink.h"
 
 #define IPC_QUEUE_MAX_SIZE 8
 #define IPC_DROP_WARMUP_FRAMES 10
+#define IPC_SNAPSHOT_SINK_NAME "snapshot_jpeg"
+#define IPC_SNAPSHOT_PATH "edge_ai_camera_test/snapshot.jpg"
+#define IPC_SNAPSHOT_INTERVAL_FRAMES 30
 
 static void app_pipeline_log_error(const char *operation, int ret)
 {
-    fprintf(stderr,
-            "[pipeline] %s failed: %s (%d)\n",
-            operation,
-            IpcError_ToString(ret),
-            ret);
+    IPC_LOGE("[pipeline] %s failed: %s (%d)",
+             operation,
+             IpcError_ToString(ret),
+             ret);
+}
+
+static void app_pipeline_log_warning(const char *operation, int ret)
+{
+    IPC_LOGW("[pipeline] warning: %s: %s (%d)",
+             operation,
+             IpcError_ToString(ret),
+             ret);
 }
 
 static int app_pipeline_need_encode(const AppPipeline *pipeline)
@@ -177,13 +190,22 @@ static void *process_thread_main(void *arg)
             output_frame = &processed_frame;
         }
 
+        if (pipeline->snapshot_sink_inited &&
+            pipeline->snapshot_sink_ops != NULL &&
+            pipeline->snapshot_sink_ops->write != NULL) {
+            ret = pipeline->snapshot_sink_ops->write(pipeline->snapshot_sink_ctx,
+                                                     output_frame);
+            if (ret != IPC_OK) {
+                app_pipeline_log_warning("FrameSink(snapshot_jpeg)->write", ret);
+            }
+        }
+
         if (pipeline->config.enable_preview) {
             ret = ViewerManager_Display(&pipeline->viewer, output_frame);
             if (ret == IPC_EOF) {
-                fprintf(stderr,
-                        "[pipeline] preview closed by user: %s (%d)\n",
-                        IpcError_ToString(ret),
-                        ret);
+                IPC_LOGI("[pipeline] preview closed by user: %s (%d)",
+                         IpcError_ToString(ret),
+                         ret);
                 app_pipeline_request_stop(pipeline);
                 break;
             }
@@ -427,6 +449,26 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
         return ret;
     }
     pipeline->converter_inited = 1;
+
+    SnapshotJpegSinkConfig snapshot_config = {
+        .output_path = IPC_SNAPSHOT_PATH,
+        .interval_frames = IPC_SNAPSHOT_INTERVAL_FRAMES,
+    };
+
+    pipeline->snapshot_sink_ops = FrameSink_Find(IPC_SNAPSHOT_SINK_NAME);
+    if (pipeline->snapshot_sink_ops == NULL) {
+        app_pipeline_log_warning("FrameSink_Find(snapshot_jpeg)", IPC_ESTATE);
+    } else if (pipeline->snapshot_sink_ops->init != NULL) {
+        ret = pipeline->snapshot_sink_ops->init(&pipeline->snapshot_sink_ctx,
+                                                &snapshot_config);
+        if (ret != IPC_OK) {
+            app_pipeline_log_warning("FrameSink(snapshot_jpeg)->init", ret);
+        } else {
+            pipeline->snapshot_sink_inited = 1;
+        }
+    } else {
+        pipeline->snapshot_sink_inited = 1;
+    }
 
     if (pipeline->config.enable_processor) {
         FrameProcessorConfig processor_config = {
@@ -762,6 +804,14 @@ void AppPipeline_Deinit(AppPipeline *pipeline)
     if (pipeline->viewer_inited) {
         ViewerManager_Deinit(&pipeline->viewer);
         pipeline->viewer_inited = 0;
+    }
+
+    if (pipeline->snapshot_sink_inited &&
+        pipeline->snapshot_sink_ops != NULL &&
+        pipeline->snapshot_sink_ops->deinit != NULL) {
+        pipeline->snapshot_sink_ops->deinit(pipeline->snapshot_sink_ctx);
+        pipeline->snapshot_sink_ctx = NULL;
+        pipeline->snapshot_sink_inited = 0;
     }
 
     if (pipeline->processor_inited) {

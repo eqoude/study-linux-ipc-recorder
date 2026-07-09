@@ -1,5 +1,7 @@
 #include "frame_processor_manager.h"
 
+#include "ipc_log.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -203,7 +205,7 @@ static int osd_processor_init(void *manager)
     }
 
     processor->priv = ctx;
-    printf("[osd_processor] init\n");
+    IPC_LOGI("[osd_processor] init");
 
     return IPC_OK;
 }
@@ -222,7 +224,7 @@ static void osd_processor_deinit(void *manager)
     free(ctx);
     processor->priv = NULL;
 
-    printf("[osd_processor] deinit\n");
+    IPC_LOGI("[osd_processor] deinit");
 }
 
 static int osd_processor_process(void *manager,
@@ -305,7 +307,7 @@ static int osd_processor_process(void *manager,
         return ret;
     }
 
-    printf("[osd_processor] process\n");
+    IPC_LOGD("[osd_processor] process");
     return IPC_OK;
 }
 
