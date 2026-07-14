@@ -200,6 +200,7 @@ static void *process_thread_main(void *arg)
             }
         }
 
+#ifdef ENABLE_VIEWER
         if (pipeline->config.enable_preview) {
             ret = ViewerManager_Display(&pipeline->viewer, output_frame);
             if (ret == IPC_EOF) {
@@ -216,6 +217,7 @@ static void *process_thread_main(void *arg)
                 break;
             }
         }
+#endif
 
         if (app_pipeline_need_encode(pipeline)) {
             ret = FrameQueue_Push(&pipeline->encode_queue, output_frame);
@@ -489,6 +491,7 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     }
 
     if (pipeline->config.enable_preview) {
+#ifdef ENABLE_VIEWER
         ViewerConfig viewer_config;
 
         memset(&viewer_config, 0, sizeof(viewer_config));
@@ -504,6 +507,10 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
             return ret;
         }
         pipeline->viewer_inited = 1;
+#else
+        app_pipeline_log_error("Viewer disabled at build time", IPC_EUNSUPPORTED);
+        return IPC_EUNSUPPORTED;
+#endif
     }
 
     if (app_pipeline_need_encode(pipeline)) {
@@ -801,10 +808,12 @@ void AppPipeline_Deinit(AppPipeline *pipeline)
         pipeline->encoder_inited = 0;
     }
 
+#ifdef ENABLE_VIEWER
     if (pipeline->viewer_inited) {
         ViewerManager_Deinit(&pipeline->viewer);
         pipeline->viewer_inited = 0;
     }
+#endif
 
     if (pipeline->snapshot_sink_inited &&
         pipeline->snapshot_sink_ops != NULL &&

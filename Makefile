@@ -2,14 +2,14 @@ TARGET := ipc_recorder
 
 CC := gcc
 
+ENABLE_VIEWER ?= 0
+
 BUILD_DIR := build
 BIN_DIR := bin
 OUTPUT_DIR := output
 
 FFMPEG_CFLAGS := $(shell pkg-config --cflags libavcodec libavformat libavutil libswscale)
 FFMPEG_LIBS := $(shell pkg-config --libs libavcodec libavformat libavutil libswscale)
-SDL_CFLAGS := $(shell pkg-config --cflags sdl2)
-SDL_LIBS := $(shell pkg-config --libs sdl2)
 
 CFLAGS := -Wall -Wextra -g -O0 \
           -Icore \
@@ -20,11 +20,10 @@ CFLAGS := -Wall -Wextra -g -O0 \
           -Imuxer \
           -Imodules \
           -Isink \
-          -Iviewer \
           $(FFMPEG_CFLAGS) \
-          $(SDL_CFLAGS) \
           $(CFLAGS_EXTRA)
 
+LIBS := $(FFMPEG_LIBS)
 LDFLAGS := -pthread
 
 SRCS := \
@@ -38,8 +37,15 @@ SRCS := \
     $(wildcard frame_processor/*.c) \
     $(wildcard muxer/*.c) \
     $(wildcard modules/*.c) \
-    $(wildcard sink/*.c) \
-    $(wildcard viewer/*.c)
+    $(wildcard sink/*.c)
+
+ifeq ($(ENABLE_VIEWER),1)
+SDL_CFLAGS := $(shell pkg-config --cflags sdl2)
+SDL_LIBS := $(shell pkg-config --libs sdl2)
+CFLAGS += -DENABLE_VIEWER -Iviewer $(SDL_CFLAGS)
+LIBS += $(SDL_LIBS)
+SRCS += $(wildcard viewer/*.c)
+endif
 
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
@@ -54,7 +60,7 @@ all: $(TARGET_PATH)
 
 $(TARGET_PATH): $(OBJS)
 	@mkdir -p $(BIN_DIR) $(OUTPUT_DIR)
-	$(CC) $(CFLAGS) -o $@ $^ $(FFMPEG_LIBS) $(SDL_LIBS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS) $(LDFLAGS)
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)

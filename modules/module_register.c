@@ -24,7 +24,9 @@ extern const FrameProcessorOps g_osd_processor_ops;
 extern const MuxerOps g_mp4_muxer_ops;
 extern const MuxerOps g_rtsp_muxer_ops;
 extern const FrameSinkOps g_snapshot_jpeg_sink_ops;
+#ifdef ENABLE_VIEWER
 extern const ViewerOps g_sdl_display_ops;
+#endif
 
 static int module_register_check(const char *module_name, int ret)
 {
@@ -92,10 +94,12 @@ int RegisterAllModules(void)
         return ret;
     }
 
+#ifdef ENABLE_VIEWER
     ret = RegisterViewer("sdl", &g_sdl_display_ops);
     if (module_register_check("sdl_display", ret) != IPC_OK) {
         return ret;
     }
+#endif
 
     ret = FrameSink_Register(&g_snapshot_jpeg_sink_ops);
     if (module_register_check("snapshot_jpeg_sink", ret) != IPC_OK) {
