@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../capture/device_scanner.h"
 #include "../modules/module_register.h"
 #include "../sink/snapshot_jpeg_sink.h"
 
@@ -96,6 +97,9 @@ static void *capture_thread_main(void *arg)
             break;
         }
         if (ret != IPC_OK) {
+            if (pipeline->stop) {
+                break;
+            }
             app_pipeline_log_error("CaptureManager_GetFrame", ret);
             pipeline->error = ret;
             app_pipeline_request_stop(pipeline);
@@ -250,7 +254,7 @@ static void *encode_thread_main(void *arg)
     memset(&frame, 0, sizeof(frame));
     memset(&packet, 0, sizeof(packet));
 
-    while (!pipeline->stop) {
+    while (1) {
         ret = FrameQueue_Pop(&pipeline->encode_queue, &frame);
         if (ret == IPC_EOF) {
             break;
@@ -294,7 +298,7 @@ static void *encode_thread_main(void *arg)
         }
     }
 
-    while (!pipeline->stop) {
+    while (1) {
         ret = EncoderManager_Flush(&pipeline->encoder, &packet);
         if (ret == IPC_EAGAIN) {
             continue;
@@ -338,7 +342,47 @@ static void *mux_thread_main(void *arg)
 
     memset(&packet, 0, sizeof(packet));
 
-    while (!pipeline->stop) {
+    if (pipeline->config.enable_record) {
+        ret = MuxerManager_Open(&pipeline->muxer);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_Open(mp4)", ret);
+            pipeline->error = ret;
+            app_pipeline_request_stop(pipeline);
+            return NULL;
+        }
+        pipeline->muxer_opened = 1;
+
+        ret = MuxerManager_WriteHeader(&pipeline->muxer);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_WriteHeader(mp4)", ret);
+            pipeline->error = ret;
+            app_pipeline_request_stop(pipeline);
+            goto finish;
+        }
+        pipeline->muxer_header_written = 1;
+    }
+
+    if (pipeline->config.enable_rtsp) {
+        ret = MuxerManager_Open(&pipeline->rtsp_muxer);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_Open(rtsp)", ret);
+            pipeline->error = ret;
+            app_pipeline_request_stop(pipeline);
+            goto finish;
+        }
+        pipeline->rtsp_muxer_opened = 1;
+
+        ret = MuxerManager_WriteHeader(&pipeline->rtsp_muxer);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_WriteHeader(rtsp)", ret);
+            pipeline->error = ret;
+            app_pipeline_request_stop(pipeline);
+            goto finish;
+        }
+        pipeline->rtsp_muxer_header_written = 1;
+    }
+
+    while (1) {
         ret = PacketQueue_Pop(&pipeline->packet_queue, &packet);
         if (ret == IPC_EOF) {
             break;
@@ -392,7 +436,32 @@ static void *mux_thread_main(void *arg)
         }
     }
 
+finish:
     MediaPacket_Unref(&packet);
+    if (pipeline->muxer_header_written) {
+        ret = MuxerManager_WriteTrailer(&pipeline->muxer);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_WriteTrailer(mp4)", ret);
+            pipeline->error = ret;
+        }
+        pipeline->muxer_header_written = 0;
+    }
+    if (pipeline->rtsp_muxer_header_written) {
+        ret = MuxerManager_WriteTrailer(&pipeline->rtsp_muxer);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("MuxerManager_WriteTrailer(rtsp)", ret);
+            pipeline->error = ret;
+        }
+        pipeline->rtsp_muxer_header_written = 0;
+    }
+    if (pipeline->muxer_opened) {
+        MuxerManager_Close(&pipeline->muxer);
+        pipeline->muxer_opened = 0;
+    }
+    if (pipeline->rtsp_muxer_opened) {
+        MuxerManager_Close(&pipeline->rtsp_muxer);
+        pipeline->rtsp_muxer_opened = 0;
+    }
     return NULL;
 }
 
@@ -415,10 +484,22 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
     }
 
     CaptureConfig capture_config;
+    CameraDeviceInfo camera_info;
+    const char *device_path;
 
     memset(&capture_config, 0, sizeof(capture_config));
+    device_path = pipeline->config.device_path;
+    if (device_path[0] == '\0') {
+        ret = DeviceScanner_FindFirstCamera(&camera_info);
+        if (ret != IPC_OK) {
+            app_pipeline_log_error("DeviceScanner_FindFirstCamera", ret);
+            return ret;
+        }
+        device_path = camera_info.path;
+    }
+
     strncpy(capture_config.device_path,
-            pipeline->config.device_path,
+            device_path,
             sizeof(capture_config.device_path) - 1U);
     capture_config.width = pipeline->config.width;
     capture_config.height = pipeline->config.height;
@@ -540,15 +621,23 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
         strncpy(muxer_config.output_path,
                 pipeline->config.output_path,
                 sizeof(muxer_config.output_path) - 1U);
-        strncpy(muxer_config.format_name,
-                pipeline->config.muxer_name,
-                sizeof(muxer_config.format_name) - 1U);
+        if (pipeline->config.enable_segment) {
+            strncpy(muxer_config.format_name,
+                    "segment",
+                    sizeof(muxer_config.format_name) - 1U);
+        } else {
+            strncpy(muxer_config.format_name,
+                    pipeline->config.muxer_name,
+                    sizeof(muxer_config.format_name) - 1U);
+        }
         muxer_config.width = pipeline->config.width;
         muxer_config.height = pipeline->config.height;
         muxer_config.fps = pipeline->config.fps;
         muxer_config.codec = CODEC_H264;
+        muxer_config.segment_time = pipeline->config.segment_time;
 
         ret = MuxerManager_Init(&pipeline->muxer,
+                                pipeline->config.enable_segment ? "segment" :
                                 pipeline->config.muxer_name,
                                 &muxer_config);
         if (ret != IPC_OK) {
@@ -606,55 +695,23 @@ int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config)
         pipeline->packet_queue_inited = 1;
     }
 
-    ret = CaptureManager_Open(&pipeline->capture);
-    if (ret != IPC_OK) {
-        app_pipeline_log_error("CaptureManager_Open", ret);
-        return ret;
-    }
-    pipeline->capture_opened = 1;
-
-    if (pipeline->config.enable_record) {
-        ret = MuxerManager_Open(&pipeline->muxer);
-        if (ret != IPC_OK) {
-            app_pipeline_log_error("MuxerManager_Open(mp4)", ret);
-            return ret;
-        }
-        pipeline->muxer_opened = 1;
-
-        ret = MuxerManager_WriteHeader(&pipeline->muxer);
-        if (ret != IPC_OK) {
-            app_pipeline_log_error("MuxerManager_WriteHeader(mp4)", ret);
-            return ret;
-        }
-        pipeline->muxer_header_written = 1;
-    }
-
-    if (pipeline->config.enable_rtsp) {
-        ret = MuxerManager_Open(&pipeline->rtsp_muxer);
-        if (ret != IPC_OK) {
-            app_pipeline_log_error("MuxerManager_Open(rtsp)", ret);
-            return ret;
-        }
-        pipeline->rtsp_muxer_opened = 1;
-
-        ret = MuxerManager_WriteHeader(&pipeline->rtsp_muxer);
-        if (ret != IPC_OK) {
-            app_pipeline_log_error("MuxerManager_WriteHeader(rtsp)", ret);
-            return ret;
-        }
-        pipeline->rtsp_muxer_header_written = 1;
-    }
-
     return IPC_OK;
 }
 
-int AppPipeline_Run(AppPipeline *pipeline)
+int AppPipeline_Start(AppPipeline *pipeline)
 {
     int ret;
 
     if (pipeline == NULL) {
         return IPC_EINVAL;
     }
+
+    ret = CaptureManager_Open(&pipeline->capture);
+    if (ret != IPC_OK) {
+        app_pipeline_log_error("CaptureManager_Open", ret);
+        return ret;
+    }
+    pipeline->capture_opened = 1;
 
     ret = CaptureManager_Start(&pipeline->capture);
     if (ret != IPC_OK) {
@@ -705,6 +762,15 @@ int AppPipeline_Run(AppPipeline *pipeline)
     }
     pipeline->capture_thread_started = 1;
 
+    return IPC_OK;
+}
+
+int AppPipeline_Wait(AppPipeline *pipeline)
+{
+    if (pipeline == NULL) {
+        return IPC_EINVAL;
+    }
+
     if (pipeline->capture_thread_started) {
         pthread_join(pipeline->capture_thread, NULL);
         pipeline->capture_thread_started = 0;
@@ -723,6 +789,21 @@ int AppPipeline_Run(AppPipeline *pipeline)
     }
 
     return pipeline->error < 0 ? pipeline->error : IPC_OK;
+}
+
+void AppPipeline_Stop(AppPipeline *pipeline)
+{
+    if (pipeline == NULL) {
+        return;
+    }
+
+    pipeline->stop = 1;
+    if (pipeline->capture_started) {
+        CaptureManager_Stop(&pipeline->capture);
+    }
+    if (pipeline->raw_queue_inited) {
+        FrameQueue_Close(&pipeline->raw_queue);
+    }
 }
 
 void AppPipeline_Deinit(AppPipeline *pipeline)
@@ -753,26 +834,6 @@ void AppPipeline_Deinit(AppPipeline *pipeline)
     if (pipeline->capture_started) {
         CaptureManager_Stop(&pipeline->capture);
         pipeline->capture_started = 0;
-    }
-
-    if (pipeline->muxer_header_written) {
-        MuxerManager_WriteTrailer(&pipeline->muxer);
-        pipeline->muxer_header_written = 0;
-    }
-
-    if (pipeline->rtsp_muxer_header_written) {
-        MuxerManager_WriteTrailer(&pipeline->rtsp_muxer);
-        pipeline->rtsp_muxer_header_written = 0;
-    }
-
-    if (pipeline->muxer_opened) {
-        MuxerManager_Close(&pipeline->muxer);
-        pipeline->muxer_opened = 0;
-    }
-
-    if (pipeline->rtsp_muxer_opened) {
-        MuxerManager_Close(&pipeline->rtsp_muxer);
-        pipeline->rtsp_muxer_opened = 0;
     }
 
     if (pipeline->capture_opened) {

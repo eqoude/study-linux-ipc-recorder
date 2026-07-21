@@ -57,6 +57,7 @@ static void app_config_print_help(const char *program)
     printf("  --fps 30                   Capture frame rate\n");
     printf("  --preview                  Enable SDL realtime preview\n");
     printf("  --record output/file.mp4   Enable MP4 recording\n");
+    printf("  --segment-time seconds     Enable segmented MP4 recording, default 60\n");
     printf("  --rtsp rtsp://host/live    Enable RTSP streaming\n");
     printf("  --processor osd            Enable frame processor plugin\n");
     printf("  --no-processor             Disable frame processor\n");
@@ -66,6 +67,7 @@ static void app_config_print_help(const char *program)
     printf("Examples:\n");
     printf("  %s --device /dev/video0 --preview\n", program);
     printf("  %s --device /dev/video0 --record output/record.mp4\n", program);
+    printf("  %s --record output/record.mp4 --segment-time 10\n", program);
     printf("  %s --device /dev/video0 --rtsp rtsp://127.0.0.1:8554/live\n", program);
     printf("  %s --device /dev/video2 --preview --record output/test.mp4\n", program);
     printf("  %s --device /dev/video0 --width 1280 --height 720 --fps 30 --preview\n", program);
@@ -79,9 +81,7 @@ void AppConfig_SetDefault(AppConfig *config)
 
     memset(config, 0, sizeof(*config));
 
-    app_config_copy_string(config->device_path,
-                           sizeof(config->device_path),
-                           "/dev/video0");
+    config->device_path[0] = '\0';
     config->width = 640;
     config->height = 480;
     config->pixel_format = PIX_FMT_YUYV422;
@@ -91,6 +91,7 @@ void AppConfig_SetDefault(AppConfig *config)
     config->enable_record = 0;
     config->enable_rtsp = 0;
     config->enable_processor = 0;
+    config->enable_segment = 0;
 
     app_config_copy_string(config->output_path,
                            sizeof(config->output_path),
@@ -119,6 +120,7 @@ void AppConfig_SetDefault(AppConfig *config)
                            "mp4");
 
     config->max_frames = 0;
+    config->segment_time = 60;
 }
 
 int AppConfig_ParseArgs(AppConfig *config, int argc, char **argv)
@@ -171,6 +173,15 @@ int AppConfig_ParseArgs(AppConfig *config, int argc, char **argv)
             app_config_copy_string(config->output_path,
                                    sizeof(config->output_path),
                                    argv[++i]);
+        } else if (strcmp(arg, "--segment-time") == 0) {
+            if (app_config_require_value(i, argc, arg) != IPC_OK ||
+                app_config_parse_int(argv[++i], &config->segment_time) != IPC_OK ||
+                config->segment_time <= 0) {
+                fprintf(stderr, "invalid --segment-time\n");
+                return IPC_EINVAL;
+            }
+            config->enable_record = 1;
+            config->enable_segment = 1;
         } else if (strcmp(arg, "--rtsp") == 0) {
             if (app_config_require_value(i, argc, arg) != IPC_OK) {
                 return IPC_EINVAL;
@@ -221,6 +232,7 @@ void AppConfig_Print(const AppConfig *config)
     printf("  enable_record    : %d\n", config->enable_record);
     printf("  enable_rtsp      : %d\n", config->enable_rtsp);
     printf("  enable_processor : %d\n", config->enable_processor);
+    printf("  enable_segment   : %d\n", config->enable_segment);
     printf("  output_path      : %s\n", config->output_path);
     printf("  rtsp_url         : %s\n", config->rtsp_url);
     printf("  capture_name     : %s\n", config->capture_name);
@@ -230,4 +242,5 @@ void AppConfig_Print(const AppConfig *config)
     printf("  encoder_name     : %s\n", config->encoder_name);
     printf("  muxer_name       : %s\n", config->muxer_name);
     printf("  max_frames       : %d\n", config->max_frames);
+    printf("  segment_time     : %d\n", config->segment_time);
 }

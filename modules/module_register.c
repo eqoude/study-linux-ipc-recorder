@@ -23,6 +23,7 @@ extern const EncoderOps g_h264_ffmpeg_encoder_ops;
 extern const FrameProcessorOps g_osd_processor_ops;
 extern const MuxerOps g_mp4_muxer_ops;
 extern const MuxerOps g_rtsp_muxer_ops;
+extern const MuxerOps g_segment_muxer_ops;
 extern const FrameSinkOps g_snapshot_jpeg_sink_ops;
 #ifdef ENABLE_VIEWER
 extern const ViewerOps g_sdl_display_ops;
@@ -91,6 +92,11 @@ int RegisterAllModules(void)
 
     ret = MuxerManager_Register(&g_rtsp_muxer_ops);
     if (module_register_check("rtsp_muxer", ret) != IPC_OK) {
+        return ret;
+    }
+
+    ret = MuxerManager_Register(&g_segment_muxer_ops);
+    if (module_register_check("segment_muxer", ret) != IPC_OK) {
         return ret;
     }
 

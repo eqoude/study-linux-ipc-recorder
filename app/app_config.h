@@ -16,6 +16,7 @@ typedef struct {
     int enable_record;
     int enable_rtsp;
     int enable_processor;
+    int enable_segment;
 
     char output_path[256];
     char rtsp_url[256];
@@ -28,6 +29,7 @@ typedef struct {
     char muxer_name[64];
 
     int max_frames;
+    int segment_time;
 } AppConfig;
 
 void AppConfig_SetDefault(AppConfig *config);

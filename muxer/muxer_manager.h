@@ -13,6 +13,7 @@ typedef struct {
     int width;
     int height;
     int fps;
+    int segment_time;
     CodecType codec;
 } MuxerConfig;
 

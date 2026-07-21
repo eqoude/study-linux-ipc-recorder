@@ -28,11 +28,11 @@
 
 | 功能 | 当前实现 |
 |---|---|
-| 摄像头采集 | V4L2 mmap，默认 `/dev/video0` |
+| 摄像头采集 | V4L2 mmap，支持未指定 `--device` 时自动扫描 camera |
 | 像素格式转换 | `YUYV422 -> YUV420P` |
 | 图像处理 | OSD 时间水印 |
 | 编码 | FFmpeg/libx264 H264 |
-| 录像 | MP4 muxer |
+| 录像 | MP4 muxer、Segment MP4 muxer |
 | 推流 | RTSP muxer publisher 结构 |
 | 预览 | SDL display 结构 |
 | Snapshot | `snapshot_jpeg_sink` 每 30 帧输出 JPEG |
@@ -64,6 +64,14 @@ Muxer(MP4/RTSP)
 ```
 
 主链路由 `app/app_pipeline.c` 编排，入口由 `app/main.c` 和 `app/app_config.c` 负责命令行配置。
+
+AppPipeline 生命周期：
+
+```text
+Init -> Start -> Signal_Wait -> Stop -> Wait -> Deinit
+```
+
+`mux_thread` 在 packet queue EOF 后负责写 trailer 和关闭 muxer，避免 Ctrl+C 退出时 MP4 缺少 moov atom。
 
 当前已验证：
 
@@ -114,13 +122,13 @@ AI 旁路不会阻塞 C 主视频链路。C 程序只负责输出 snapshot 文�
 
 | 子系统 | 已实现内容 |
 |---|---|
-| app | AppConfig 参数解析，AppPipeline 线程编排 |
+| app | AppConfig 参数解析，AppPipeline Init/Start/Wait/Stop/Deinit 生命周期编排 |
 | core | 错误码、日志、MediaFrame、MediaPacket、FrameQueue、PacketQueue |
 | capture | fake capture、V4L2 capture |
 | converter | fake converter、YUYV422 到 YUV420P |
 | frame_processor | OSD processor |
 | encoder | fake encoder、H264 FFmpeg encoder |
-| muxer | fake muxer、MP4 muxer、RTSP muxer |
+| muxer | fake muxer、MP4 muxer、Segment muxer、RTSP muxer |
 | sink | FrameSink manager、snapshot_jpeg sink |
 | viewer | SDL display |
 | modules | 静态插件注册 |

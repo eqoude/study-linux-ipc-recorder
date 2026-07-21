@@ -69,7 +69,9 @@ typedef struct {
 } AppPipeline;
 
 int AppPipeline_Init(AppPipeline *pipeline, const AppConfig *config);
-int AppPipeline_Run(AppPipeline *pipeline);
+int AppPipeline_Start(AppPipeline *pipeline);
+int AppPipeline_Wait(AppPipeline *pipeline);
+void AppPipeline_Stop(AppPipeline *pipeline);
 void AppPipeline_Deinit(AppPipeline *pipeline);
 
 #endif

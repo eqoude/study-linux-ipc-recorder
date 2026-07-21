@@ -154,8 +154,10 @@ encode_thread
   └── EncoderManager_Encode / Flush
   ↓ packet_queue: PacketQueue
 mux_thread
-  ├── MuxerManager_WritePacket(mp4)
-  └── MuxerManager_WritePacket(rtsp)
+  ├── MuxerManager_Open / WriteHeader
+  ├── MuxerManager_WritePacket(mp4/segment)
+  ├── MuxerManager_WritePacket(rtsp)
+  └── MuxerManager_WriteTrailer / Close
 ```
 
 | 线程 | 主要职责 | 队列边界 |
@@ -163,7 +165,7 @@ mux_thread
 | `capture_thread` | 从 V4L2 获取帧并归还 buffer | push `raw_queue` |
 | `process_thread` | 转换、OSD、snapshot、preview | pop `raw_queue`, push `encode_queue` |
 | `encode_thread` | H264 编码和 flush | pop `encode_queue`, push `packet_queue` |
-| `mux_thread` | MP4 / RTSP 写 packet | pop `packet_queue` |
+| `mux_thread` | MP4 / Segment MP4 / RTSP 写 packet，并在 EOF 后写 trailer | pop `packet_queue` |
 
 队列作用：
 
@@ -171,7 +173,33 @@ mux_thread
 - 避免 muxer 或 encoder 短时阻塞直接卡住 capture。
 - 通过 max size 防止无限内存积压。
 
-## 7. 当前可运行模式
+## 7. Pipeline 生命周期
+
+当前 `app/app_pipeline.c` 使用 Linux daemon 风格生命周期：
+
+```text
+AppPipeline_Init
+  ↓
+AppPipeline_Start
+  ↓
+main thread: Signal_Wait(SIGINT / SIGTERM)
+  ↓
+AppPipeline_Stop
+  ↓
+AppPipeline_Wait
+  ↓
+AppPipeline_Deinit
+```
+
+关键点：
+
+- `Start` 只启动 capture/process/encode/mux worker threads，不负责 join。
+- `Wait` 负责 join worker threads。
+- `Stop` 只发出停止请求：停止 capture 并关闭 raw queue。
+- `mux_thread` 是唯一写 muxer 的线程，packet queue EOF 后负责 `WriteTrailer` 和 `Close`。
+- 该设计用于保证 Ctrl+C 后 MP4 能写入 trailer，避免 `moov atom not found`。
+
+## 8. 当前可运行模式
 
 MP4 录制：
 
@@ -193,3 +221,10 @@ RTSP publisher：
 ```
 
 RTSP 需要外部 Server，例如 mediamtx。
+
+
+Segment MP4 录制：
+
+```bash
+./bin/ipc_recorder --record output/record.mp4 --segment-time 10
+```

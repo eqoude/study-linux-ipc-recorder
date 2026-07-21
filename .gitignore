@@ -77,10 +77,17 @@ docs/project/*
 !docs/project/system_overview.md
 !docs/project/build_and_run.md
 !docs/project/dependencies.md
+!docs/project/interview_overview.md
+!docs/project/code_reading_guide.md
 
 !docs/architecture/
 docs/architecture/*
+!docs/architecture/app_pipeline.md
 !docs/architecture/pipeline_overview.md
+
+!docs/changes/
+docs/changes/*
+!docs/changes/*.md
 
 !docs/modules/
 docs/modules/*
@@ -122,5 +129,4 @@ Thumbs.db
 # ============================================================
 # Core dumps
 # ============================================================
-core
 core.*
