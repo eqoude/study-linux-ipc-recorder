@@ -1,0 +1,2 @@
+/usr/bin/ar qc libcapture.a CMakeFiles/capture.dir/capture_manager.c.o CMakeFiles/capture.dir/device_scanner.c.o CMakeFiles/capture.dir/fake_capture.c.o CMakeFiles/capture.dir/v4l2_capture.c.o
+/usr/bin/ranlib libcapture.a

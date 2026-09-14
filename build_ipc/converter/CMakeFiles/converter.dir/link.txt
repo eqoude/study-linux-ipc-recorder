@@ -1,0 +1,2 @@
+/usr/bin/ar qc libconverter.a CMakeFiles/converter.dir/converter_manager.c.o CMakeFiles/converter.dir/fake_converter.c.o CMakeFiles/converter.dir/yuyv_to_yuv420_converter.c.o
+/usr/bin/ranlib libconverter.a

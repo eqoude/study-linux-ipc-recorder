@@ -1,0 +1,2 @@
+/usr/bin/ar qc libframe_processor.a CMakeFiles/frame_processor.dir/frame_processor_manager.c.o CMakeFiles/frame_processor.dir/osd_processor.c.o
+/usr/bin/ranlib libframe_processor.a

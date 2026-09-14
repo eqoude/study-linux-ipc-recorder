@@ -1,0 +1,2 @@
+/usr/bin/ar qc libencoder.a CMakeFiles/encoder.dir/encoder_manager.c.o CMakeFiles/encoder.dir/fake_encoder.c.o CMakeFiles/encoder.dir/h264_ffmpeg_encoder.c.o
+/usr/bin/ranlib libencoder.a

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libmuxer.a CMakeFiles/muxer.dir/muxer_manager.c.o CMakeFiles/muxer.dir/mp4_muxer.c.o CMakeFiles/muxer.dir/rtsp_muxer.c.o CMakeFiles/muxer.dir/segment_muxer.c.o CMakeFiles/muxer.dir/fake_muxer.c.o
+/usr/bin/ranlib libmuxer.a

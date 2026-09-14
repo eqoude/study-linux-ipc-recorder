@@ -1,0 +1,2 @@
+/usr/bin/ar qc libsink.a CMakeFiles/sink.dir/frame_sink_manager.c.o CMakeFiles/sink.dir/snapshot_jpeg_sink.c.o
+/usr/bin/ranlib libsink.a
